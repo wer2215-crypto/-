@@ -315,7 +315,7 @@
         };
 
         window.resetData = function() {
-            if(confirm("⚠️ 모든 파티원의 일정이 정말로 초기화됩니다.\n계속하시겠습니까?")) {
+            if(confirm("⚠️ 모든 파티원의 일정이 초기화됩니다.\n계속하시겠습니까?")) {
                 const emptyData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
                 set(scheduleRef, emptyData);
             }
