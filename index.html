@@ -1,8 +1,4 @@
-0시부터 24시까지 전체 시간대를 모두 체크할 수 있도록 수정된 HTML 코드입니다.
-
-아래 코드를 복사해서 기존 index.html 파일 내용 전체에 덮어쓰기 하신 후, 깃허브(GitHub)에서 해당 파일로 다시 업로드(Commit changes)하시면 바로 적용됩니다.
-
-💻 0시~24시 적용 HTML 코드
+💻 시간대 조정 완료 HTML 코드
 HTML
 <!DOCTYPE html>
 <html lang="ko">
@@ -60,18 +56,18 @@ HTML
 </head>
 <body>
 
-    <h2>레이드 일정 공유표</h2>
+    <h2>🎮 6인 레이드 일정 공유표</h2>
     <p style="color: #94a3b8;">본인 닉네임을 선택한 후 안 되는 시간대를 클릭하여 토글하세요.</p>
 
     <div class="controls">
         <label for="memberSelect">내 닉네임:</label>
         <select id="memberSelect" onchange="renderGrid()">
-            <option value="0">페팬</option>
-            <option value="1">둠브</option>
-            <option value="2">니샤</option>
-            <option value="3">리버</option>
-            <option value="4">셀레</option>
-            <option value="5">닉스</option>
+            <option value="0">멤버 1</option>
+            <option value="1">멤버 2</option>
+            <option value="2">멤버 3</option>
+            <option value="3">멤버 4</option>
+            <option value="4">멤버 5</option>
+            <option value="5">멤버 6</option>
         </select>
         <button onclick="resetData()">전체 초기화</button>
     </div>
@@ -81,18 +77,23 @@ HTML
     </div>
 
     <script>
-        const days = ['목', '금', '토', '일', '월', '화', '수'];
-        // 00:00 ~ 24:00 (25개 시간대)
-        const hours = Array.from({ length: 25 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
+        const days = ['월', '화', '수', '목', '금', '토', '일'];
         
-        let scheduleData = JSON.parse(localStorage.getItem('raid_schedule_24h')) || 
-            Array(7).fill().map(() => Array(25).fill().map(() => Array(6).fill(false)));
+        // 10:00 ~ 24:00 (00:00), 새벽 01:00, 02:00
+        const hours = [
+            '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', 
+            '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', 
+            '22:00', '23:00', '24:00', '01:00', '02:00'
+        ];
+        
+        let scheduleData = JSON.parse(localStorage.getItem('raid_schedule_custom_hours')) || 
+            Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
 
-        function saveData() { localStorage.setItem('raid_schedule_24h', JSON.stringify(scheduleData)); }
+        function saveData() { localStorage.setItem('raid_schedule_custom_hours', JSON.stringify(scheduleData)); }
 
         function resetData() {
             if(confirm("모든 일정을 초기화하시겠습니까?")) {
-                scheduleData = Array(7).fill().map(() => Array(25).fill().map(() => Array(6).fill(false)));
+                scheduleData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
                 saveData(); renderGrid();
             }
         }
