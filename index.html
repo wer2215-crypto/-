@@ -62,12 +62,12 @@ HTML
     <div class="controls">
         <label for="memberSelect">내 닉네임:</label>
         <select id="memberSelect" onchange="renderGrid()">
-            <option value="0">멤버 1</option>
-            <option value="1">멤버 2</option>
-            <option value="2">멤버 3</option>
-            <option value="3">멤버 4</option>
-            <option value="4">멤버 5</option>
-            <option value="5">멤버 6</option>
+            <option value="0">뱁새</option>
+            <option value="1">담곰</option>
+            <option value="2">두지</option>
+            <option value="3">깜고</option>
+            <option value="4">이리</option>
+            <option value="5">시요</option>
         </select>
         <button onclick="resetData()">전체 초기화</button>
     </div>
@@ -77,7 +77,7 @@ HTML
     </div>
 
     <script>
-        const days = ['월', '화', '수', '목', '금', '토', '일'];
+        const days = ['목', '금', '토', '일', '월', '화', '수'];
         
         // 10:00 ~ 24:00 (00:00), 새벽 01:00, 02:00
         const hours = [
