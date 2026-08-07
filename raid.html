@@ -1,0 +1,138 @@
+0시부터 24시까지 전체 시간대를 모두 체크할 수 있도록 수정된 HTML 코드입니다.
+
+아래 코드를 복사해서 기존 index.html 파일 내용 전체에 덮어쓰기 하신 후, 깃허브(GitHub)에서 해당 파일로 다시 업로드(Commit changes)하시면 바로 적용됩니다.
+
+💻 0시~24시 적용 HTML 코드
+HTML
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>6인 레이드 일정 공유표</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --border-color: #334155;
+            --accent-color: #3b82f6;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+        select, button {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover { background: var(--accent-color); }
+        .grid-container {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        table { border-collapse: collapse; user-select: none; }
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            text-align: center;
+            min-width: 85px;
+        }
+        th { background-color: #0f172a; position: sticky; top: 0; z-index: 10; }
+        .cell { cursor: pointer; font-size: 13px; font-weight: bold; }
+        .cell.available { background-color: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .cell.unavailable { background-color: rgba(239, 68, 68, 0.25); color: #f87171; }
+    </style>
+</head>
+<body>
+
+    <h2>레이드 일정 공유표</h2>
+    <p style="color: #94a3b8;">본인 닉네임을 선택한 후 안 되는 시간대를 클릭하여 토글하세요.</p>
+
+    <div class="controls">
+        <label for="memberSelect">내 닉네임:</label>
+        <select id="memberSelect" onchange="renderGrid()">
+            <option value="0">페팬</option>
+            <option value="1">둠브</option>
+            <option value="2">니샤</option>
+            <option value="3">리버</option>
+            <option value="4">셀레</option>
+            <option value="5">닉스</option>
+        </select>
+        <button onclick="resetData()">전체 초기화</button>
+    </div>
+
+    <div class="grid-container">
+        <table id="scheduleTable"></table>
+    </div>
+
+    <script>
+        const days = ['목', '금', '토', '일', '월', '화', '수'];
+        // 00:00 ~ 24:00 (25개 시간대)
+        const hours = Array.from({ length: 25 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
+        
+        let scheduleData = JSON.parse(localStorage.getItem('raid_schedule_24h')) || 
+            Array(7).fill().map(() => Array(25).fill().map(() => Array(6).fill(false)));
+
+        function saveData() { localStorage.setItem('raid_schedule_24h', JSON.stringify(scheduleData)); }
+
+        function resetData() {
+            if(confirm("모든 일정을 초기화하시겠습니까?")) {
+                scheduleData = Array(7).fill().map(() => Array(25).fill().map(() => Array(6).fill(false)));
+                saveData(); renderGrid();
+            }
+        }
+
+        function toggleCell(day, hour) {
+            const currentMember = parseInt(document.getElementById('memberSelect').value);
+            scheduleData[day][hour][currentMember] = !scheduleData[day][hour][currentMember];
+            saveData(); renderGrid();
+        }
+
+        function renderGrid() {
+            const currentMember = parseInt(document.getElementById('memberSelect').value);
+            const table = document.getElementById('scheduleTable');
+            table.innerHTML = '';
+
+            let headerHTML = '<tr><th>시간/요일</th>';
+            days.forEach(d => headerHTML += `<th>${d}</th>`);
+            headerHTML += '</tr>';
+            table.innerHTML += headerHTML;
+
+            hours.forEach((h, hIdx) => {
+                let rowHTML = `<tr><th>${h}</th>`;
+                days.forEach((d, dIdx) => {
+                    const unavailableList = scheduleData[dIdx][hIdx];
+                    const unavailableCount = unavailableList.filter(v => v).length;
+                    const isMyUnavailable = unavailableList[currentMember];
+
+                    let statusText = unavailableCount === 0 ? '가능⭕' : `불가❌ (${unavailableCount}명)`;
+                    let cellClass = 'cell ' + (unavailableCount === 0 ? 'available' : 'unavailable');
+
+                    if (isMyUnavailable) statusText += '<br><small style="color:#fca5a5">[나 안됨]</small>';
+
+                    rowHTML += `<td class="${cellClass}" onclick="toggleCell(${dIdx}, ${hIdx})">${statusText}</td>`;
+                });
+                rowHTML += '</tr>';
+                table.innerHTML += rowHTML;
+            });
+        }
+
+        renderGrid();
+    </script>
+</body>
+</html>
