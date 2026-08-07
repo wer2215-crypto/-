@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>6인 레이드 일정 공유표</title>
+    <title>6인 레이드 실시간 일정 공유표</title>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -52,10 +52,96 @@
         .cell.unavailable { background-color: rgba(239, 68, 68, 0.25); color: #f87171; }
         .names { font-size: 11px; color: #fca5a5; margin-top: 3px; font-weight: normal; }
     </style>
+    <!-- Firebase SDK 로드 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AiZaSyAdtqhAf0vkaF8Y-P8K9gBGK-L4CGK0By8",
+            authDomain: "raid-c2ee1.firebaseapp.com",
+            databaseURL: "https://raid-c2ee1-default-rtdb.firebaseio.com",
+            projectId: "raid-c2ee1",
+            storageBucket: "raid-c2ee1.firebasestorage.app",
+            messagingSenderId: "480238107862",
+            appId: "1:480238107862:web:c696a45a066f2235de9d77"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const scheduleRef = ref(db, 'raid_schedule');
+
+        const members = ['뱁새', '담곰', '두지', '깜고', '이리', '시요'];
+        const days = ['목', '금', '토', '일', '월', '화', '수'];
+        const hours = [
+            '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', 
+            '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', 
+            '22:00', '23:00', '24:00', '01:00', '02:00'
+        ];
+
+        let scheduleData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
+
+        onValue(scheduleRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                scheduleData = data;
+                renderGrid();
+            }
+        });
+
+        window.toggleCell = function(day, hour) {
+            const currentMember = parseInt(document.getElementById('memberSelect').value);
+            scheduleData[day][hour][currentMember] = !scheduleData[day][hour][currentMember];
+            set(scheduleRef, scheduleData);
+        };
+
+        window.resetData = function() {
+            if(confirm("모든 파티원의 일정을 초기화하시겠습니까?")) {
+                const emptyData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
+                set(scheduleRef, emptyData);
+            }
+        };
+
+        window.renderGrid = function() {
+            const currentMember = parseInt(document.getElementById('memberSelect').value);
+            const table = document.getElementById('scheduleTable');
+            table.innerHTML = '';
+
+            let headerHTML = '<tr><th>시간/요일</th>';
+            days.forEach(d => headerHTML += `<th>${d}</th>`);
+            headerHTML += '</tr>';
+            table.innerHTML += headerHTML;
+
+            hours.forEach((h, hIdx) => {
+                let rowHTML = `<tr><th>${h}</th>`;
+                days.forEach((d, dIdx) => {
+                    const unavailableList = scheduleData[dIdx][hIdx] || Array(6).fill(false);
+                    const unavailNames = members.filter((_, mIdx) => unavailableList[mIdx]);
+                    const unavailableCount = unavailNames.length;
+
+                    let statusText = '';
+                    let cellClass = 'cell ';
+
+                    if (unavailableCount === 0) {
+                        statusText = '가능⭕';
+                        cellClass += 'available';
+                    } else {
+                        statusText = `불가❌ (${unavailableCount}명)`;
+                        statusText += `<div class="names">(${unavailNames.join(', ')})</div>`;
+                        cellClass += 'unavailable';
+                    }
+
+                    rowHTML += `<td class="${cellClass}" onclick="toggleCell(${dIdx}, ${hIdx})">${statusText}</td>`;
+                });
+                rowHTML += '</tr>';
+                table.innerHTML += rowHTML;
+            });
+        };
+    </script>
 </head>
 <body>
 
-    <h2>🎮 6인 레이드 일정 공유표</h2>
+    <h2>🎮 6인 레이드 실시간 일정 공유표</h2>
     <p style="color: #94a3b8;">본인 닉네임을 선택한 후 안 되는 시간대를 클릭하여 토글하세요.</p>
 
     <div class="controls">
@@ -75,75 +161,5 @@
         <table id="scheduleTable"></table>
     </div>
 
-    <script>
-        const members = ['뱁새', '담곰', '두지', '깜고', '이리', '시요'];
-        const days = ['목', '금', '토', '일', '월', '화', '수'];
-        
-        // 10:00 ~ 24:00 (00:00), 새벽 01:00, 02:00
-        const hours = [
-            '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', 
-            '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', 
-            '22:00', '23:00', '24:00', '01:00', '02:00'
-        ];
-        
-        let scheduleData = JSON.parse(localStorage.getItem('raid_schedule_custom_hours')) || 
-            Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
-
-        function saveData() { localStorage.setItem('raid_schedule_custom_hours', JSON.stringify(scheduleData)); }
-
-        function resetData() {
-            if(confirm("모든 일정을 초기화하시겠습니까?")) {
-                scheduleData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
-                saveData(); renderGrid();
-            }
-        }
-
-        function toggleCell(day, hour) {
-            const currentMember = parseInt(document.getElementById('memberSelect').value);
-            scheduleData[day][hour][currentMember] = !scheduleData[day][hour][currentMember];
-            saveData(); renderGrid();
-        }
-
-        function renderGrid() {
-            const currentMember = parseInt(document.getElementById('memberSelect').value);
-            const table = document.getElementById('scheduleTable');
-            table.innerHTML = '';
-
-            let headerHTML = '<tr><th>시간/요일</th>';
-            days.forEach(d => headerHTML += `<th>${d}</th>`);
-            headerHTML += '</tr>';
-            table.innerHTML += headerHTML;
-
-            hours.forEach((h, hIdx) => {
-                let rowHTML = `<tr><th>${h}</th>`;
-                days.forEach((d, dIdx) => {
-                    const unavailableList = scheduleData[dIdx][hIdx];
-                    
-                    // 안 되는 사람 명단 추출
-                    const unavailNames = members.filter((_, mIdx) => unavailableList[mIdx]);
-                    const unavailableCount = unavailNames.length;
-
-                    let statusText = '';
-                    let cellClass = 'cell ';
-
-                    if (unavailableCount === 0) {
-                        statusText = '가능⭕';
-                        cellClass += 'available';
-                    } else {
-                        statusText = `불가❌ (${unavailableCount}명)`;
-                        // 안 되는 멤버 이름 표시
-                        statusText += `<div class="names">(${unavailNames.join(', ')})</div>`;
-                        cellClass += 'unavailable';
-                    }
-
-                    rowHTML += `<td class="${cellClass}" onclick="toggleCell(${dIdx}, ${hIdx})">${statusText}</td>`;
-                });
-                rowHTML += '</tr>';
-                table.innerHTML += rowHTML;
-            });
-        }
-
-        renderGrid();
-    </script>
 </body>
 </html>
