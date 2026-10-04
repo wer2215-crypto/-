@@ -121,7 +121,8 @@
         const db = getDatabase(app);
         const scheduleRef = ref(db, 'raid_schedule');
 
-        const members = ['뱁새', '담곰', '두지', '깜고', '이리', '시요'];
+        // 멤버 목록에 1명 추가 (총 7명)
+        const members = ['뱁새', '담곰', '두지', '깜고', '이리', '시요', '도찌'];
         const days = ['목', '금', '토', '일', '월', '화', '수'];
         const hours = [
             '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', 
@@ -129,7 +130,8 @@
             '22:00', '23:00', '24:00', '01:00', '02:00'
         ];
 
-        let scheduleData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
+        // 멤버 인원수(7명)에 맞춰 초기 데이터 배열 구조 변경
+        let scheduleData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(members.length).fill(false)));
 
         onValue(scheduleRef, (snapshot) => {
             const data = snapshot.val();
@@ -147,7 +149,7 @@
 
         window.resetData = function() {
             if(confirm("⚠️ 모든 파티원의 일정이 초기화됩니다.\n계속하시겠습니까?")) {
-                const emptyData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(6).fill(false)));
+                const emptyData = Array(7).fill().map(() => Array(hours.length).fill().map(() => Array(members.length).fill(false)));
                 set(scheduleRef, emptyData);
             }
         };
@@ -165,7 +167,7 @@
             hours.forEach((h, hIdx) => {
                 let rowHTML = `<tr><th>${h}</th>`;
                 days.forEach((d, dIdx) => {
-                    const unavailableList = scheduleData[dIdx][hIdx] || Array(6).fill(false);
+                    const unavailableList = scheduleData[dIdx][hIdx] || Array(members.length).fill(false);
                     const unavailNames = members.filter((_, mIdx) => unavailableList[mIdx]);
                     const unavailableCount = unavailNames.length;
 
@@ -199,7 +201,7 @@
 </head>
 <body>
 
-    <h2>🕊️🐻‍❄️🌸🐈‍⬛🐹😾 일정 공유표 [10/1-10/7]</h2>
+    <h2>🕊️🐻‍❄️🌸🐈‍⬛🐹😾🦔 일정 공유표 [10/8-10/14]</h2>
     <p style="color: #94a3b8; font-size: 13px;">레이드 보상 날로 먹게 해주세요</p>
 
     <div class="controls">
@@ -212,6 +214,7 @@
                 <option value="3">깜고</option>
                 <option value="4">이리</option>
                 <option value="5">시요</option>
+                <option value="6">도찌</option>
             </select>
         </div>
         <button class="reset-btn" onclick="resetData()">전체 초기화</button>
