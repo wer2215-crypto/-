@@ -237,7 +237,7 @@ jobs:
                       "이리",
                       "깜고"
                   ],
-                  "color": 0x9B59B6
+                  "color": 0x14145A
               },
               {
                   "id": "dozziParty",
@@ -280,7 +280,9 @@ jobs:
                   for name in party["members"]
               ]
 
-              lines = []
+              lines = [
+                  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              ]
 
               for day_index, day_name in enumerate(days):
 
@@ -362,7 +364,7 @@ jobs:
                   if day_name == "일요일":
 
                       lines.append(
-                          "────────────"
+                          "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                       )
 
               # 파티 확정시간 / 특이사항
@@ -399,7 +401,7 @@ jobs:
                       ]
 
                       embed_title = (
-                          f'{party["name"]} '
+                          f'{party["name"]} ▸ '
                           f'{confirmed_date.month}/'
                           f'{confirmed_date.day}'
                           f'({weekday_text}) '
@@ -408,18 +410,20 @@ jobs:
 
                   except (ValueError, TypeError):
                       embed_title = (
-                          f'{party["name"]} · 선택안됨'
+                          f'{party["name"]} ▸ 선택안됨'
                       )
               else:
                   embed_title = (
-                      f'{party["name"]} · 선택안됨'
+                      f'{party["name"]} ▸ 선택안됨'
                   )
 
               # 특이사항이 있을 때만 표시
               if isinstance(note, str) and note.strip():
-                  lines.append("")
                   lines.append(
-                      f"※ {note.strip()}"
+                      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                  )
+                  lines.append(
+                      f"✅ {note.strip()}"
                   )
 
               # 파티 Embed
