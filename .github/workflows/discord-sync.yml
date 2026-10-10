@@ -30,11 +30,13 @@ jobs:
           import os
           from datetime import datetime, timezone, timedelta
 
-          FIREBASE_BASE = "https://raid-c2ee1-default-rtdb.firebaseio.com"
+          FIREBASE_BASE = (
+              "https://raid-c2ee1-default-rtdb.firebaseio.com"
+          )
 
-          # -----------------------------
-          # Firebase 읽기
-          # -----------------------------
+          # ==========================================
+          # 1. Firebase 일정 읽기
+          # ==========================================
 
           with urllib.request.urlopen(
               f"{FIREBASE_BASE}/raid_schedule.json",
@@ -51,7 +53,13 @@ jobs:
 
           print("Firebase schedule read: OK")
 
-          # 선택된 주간 읽기
+          # ==========================================
+          # 2. Firebase 주간 시작 날짜 읽기
+          #
+          # 저장 형태:
+          # raid_schedule_week: "2026-10-15"
+          # ==========================================
+
           try:
               with urllib.request.urlopen(
                   f"{FIREBASE_BASE}/raid_schedule_week.json",
@@ -60,49 +68,47 @@ jobs:
                   week_data = json.loads(
                       response.read().decode("utf-8")
                   )
+
+              print("Firebase week read: OK")
+
           except Exception as error:
-              print("Week data read failed:", error)
+              print("Firebase week read failed:", error)
               week_data = None
 
-          print("Firebase week read: OK")
-
-          # -----------------------------
-          # 주간 표시 문자열 만들기
-          # -----------------------------
+          # ==========================================
+          # 3. [10/15-10/21] 형식 만들기
+          # ==========================================
 
           week_text = ""
 
-          if isinstance(week_data, dict):
-              start_date = week_data.get("startDate")
-              end_date = week_data.get("endDate")
+          if isinstance(week_data, str):
 
               try:
-                  if start_date and end_date:
+                  # Firebase 값 = 목요일 시작 날짜
+                  start = datetime.strptime(
+                      week_data,
+                      "%Y-%m-%d"
+                  )
 
-                      start = datetime.strptime(
-                          start_date,
-                          "%Y-%m-%d"
-                      )
+                  # 목요일 + 6일 = 수요일
+                  end = start + timedelta(days=6)
 
-                      end = datetime.strptime(
-                          end_date,
-                          "%Y-%m-%d"
-                      )
-
-                      week_text = (
-                          f"[{start.month}/{start.day}"
-                          f"-{end.month}/{end.day}]"
-                      )
+                  week_text = (
+                      f"[{start.month}/{start.day}"
+                      f"-{end.month}/{end.day}]"
+                  )
 
               except ValueError:
                   print("Invalid week date format.")
 
           print("Week:", week_text or "(none)")
 
-          # -----------------------------
-          # 변경 여부 확인
-          # 일정 + 선택 주간을 함께 비교
-          # -----------------------------
+          # ==========================================
+          # 4. 일정 + 주간 날짜 변경 여부 확인
+          #
+          # 이제 일정 칸뿐 아니라
+          # 달력에서 주만 바꿔도 변경으로 인식
+          # ==========================================
 
           combined_state = {
               "schedule": data,
@@ -118,6 +124,7 @@ jobs:
           ).hexdigest()
 
           state_file = ".github/last_schedule_hash.txt"
+
           old_hash = ""
 
           if os.path.exists(state_file):
@@ -140,9 +147,9 @@ jobs:
 
               raise SystemExit(0)
 
-          # -----------------------------
-          # 일정 설정
-          # -----------------------------
+          # ==========================================
+          # 5. 멤버 / 요일 / 시간 설정
+          # ==========================================
 
           members = [
               "뱁새",
@@ -184,6 +191,10 @@ jobs:
               "02:00"
           ]
 
+          # ==========================================
+          # 6. 고정 파티 설정
+          # ==========================================
+
           parties = [
               {
                   "name": "두지팟",
@@ -210,20 +221,23 @@ jobs:
               }
           ]
 
-          # -----------------------------
-          # 마지막 업데이트 시간
-          # -----------------------------
+          # ==========================================
+          # 7. 마지막 업데이트 시간 (한국 시간)
+          # ==========================================
 
-          KST = timezone(timedelta(hours=9))
+          KST = timezone(
+              timedelta(hours=9)
+          )
+
           now = datetime.now(KST)
 
           updated_at = now.strftime(
               "%Y.%m.%d %H:%M"
           )
 
-          # -----------------------------
-          # Discord Embed 생성
-          # -----------------------------
+          # ==========================================
+          # 8. 파티별 공통 가능 시간 계산
+          # ==========================================
 
           embeds = []
 
@@ -243,7 +257,11 @@ jobs:
                   for hour_index in range(len(hours)):
 
                       try:
-                          row = data[day_index][hour_index]
+                          row = data[
+                              day_index
+                          ][
+                              hour_index
+                          ]
 
                       except (IndexError, TypeError):
                           row = []
@@ -256,22 +274,26 @@ jobs:
                           for member_index in party_indices
                       )
 
-                      common.append(available)
+                      common.append(
+                          available
+                      )
 
                   ranges = []
-                  start = None
+                  start_index = None
 
-                  for h in range(len(common) + 1):
+                  for h in range(
+                      len(common) + 1
+                  ):
 
                       if (
                           h < len(common)
                           and common[h]
                       ):
 
-                          if start is None:
-                              start = h
+                          if start_index is None:
+                              start_index = h
 
-                      elif start is not None:
+                      elif start_index is not None:
 
                           end_label = (
                               hours[h]
@@ -280,14 +302,18 @@ jobs:
                           )
 
                           ranges.append(
-                              f"{hours[start]}–{end_label}"
+                              f"{hours[start_index]}"
+                              f"–{end_label}"
                           )
 
-                          start = None
+                          start_index = None
 
+                  # 가능한 시간 표시
                   if ranges:
 
-                      time_text = " · ".join(ranges)
+                      time_text = " · ".join(
+                          ranges
+                      )
 
                       lines.append(
                           f"**{day_name}**　▸ "
@@ -300,11 +326,14 @@ jobs:
                           f"**{day_name}**　▸ -"
                       )
 
+                  # 일요일과 월요일 사이 구분선
                   if day_name == "일요일":
+
                       lines.append(
                           "────────────"
                       )
 
+              # 파티 Embed
               embeds.append({
                   "title": party["name"],
                   "description": "\n".join(lines),
@@ -317,20 +346,29 @@ jobs:
                   }
               })
 
-          # -----------------------------
-          # Discord 상단 문구
-          # -----------------------------
+          # ==========================================
+          # 9. Discord 상단 제목
+          # ==========================================
 
           if week_text:
-              title = (
+
+              discord_title = (
                   f"📅 **레이드 일정 {week_text}**"
               )
+
           else:
-              title = "📅 **레이드 일정**"
+
+              discord_title = (
+                  "📅 **레이드 일정**"
+              )
+
+          # ==========================================
+          # 10. Discord 메시지 만들기
+          # ==========================================
 
           payload = {
               "content": (
-                  f"{title}\n"
+                  f"{discord_title}\n"
                   "🔗 [일정 입력·수정하기]"
                   "(https://wer2215-crypto.github.io/-/)"
               ),
@@ -349,6 +387,7 @@ jobs:
                   ensure_ascii=False
               )
 
+          # 새로운 상태 해시 저장 준비
           with open(
               "/tmp/new_schedule_hash.txt",
               "w",
@@ -359,6 +398,7 @@ jobs:
                   digest + "\n"
               )
 
+          # 다음 GitHub Actions 단계에 전달
           with open(
               os.environ["GITHUB_ENV"],
               "a"
@@ -374,6 +414,11 @@ jobs:
           )
 
           PY
+
+      # ==========================================
+      # 11. 기존 Discord 메시지 수정
+      # 새 메시지를 만들지 않고 PATCH
+      # ==========================================
 
       - name: Update existing Discord message
         if: env.SEND_DISCORD == 'true'
@@ -420,6 +465,10 @@ jobs:
           fi
 
           echo "Existing Discord message updated successfully."
+
+      # ==========================================
+      # 12. 현재 상태 저장
+      # ==========================================
 
       - name: Save schedule state
         if: env.SEND_DISCORD == 'true'
