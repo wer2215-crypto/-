@@ -1,30 +1,37 @@
-name: Create New Raid Discord Message
+name: Raid Schedule Discord Sync
 
 on:
+  schedule:
+    # 1시간마다 Firebase 일정 확인
+    - cron: "0 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: raid-discord-sync
+  cancel-in-progress: false
+
 jobs:
-  create-message:
+  sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create new Discord raid message
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          if [ -z "$DISCORD_WEBHOOK" ]; then
-            echo "DISCORD_WEBHOOK secret is missing."
-            exit 1
-          fi
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      - name: Read Firebase and make Discord message
+        run: |
           python - <<'PY'
           import json
           import urllib.request
+          import hashlib
+          import os
           from datetime import datetime, timezone, timedelta
 
           FIREBASE_URL = "https://raid-c2ee1-default-rtdb.firebaseio.com/raid_schedule.json"
 
-          # Firebase 최신 일정 읽기
           with urllib.request.urlopen(FIREBASE_URL, timeout=20) as response:
               data = json.loads(response.read().decode("utf-8"))
 
@@ -32,6 +39,30 @@ jobs:
               raise SystemExit("Firebase data format is not an array.")
 
           print("Firebase read: OK")
+
+          digest = hashlib.sha256(
+              json.dumps(
+                  data,
+                  ensure_ascii=False,
+                  sort_keys=True
+              ).encode("utf-8")
+          ).hexdigest()
+
+          state_file = ".github/last_schedule_hash.txt"
+          old_hash = ""
+
+          if os.path.exists(state_file):
+              with open(state_file, "r", encoding="utf-8") as f:
+                  old_hash = f.read().strip()
+
+          # 일정 변경이 없으면 Discord 메시지를 수정하지 않음
+          if old_hash == digest:
+              print("Schedule unchanged.")
+
+              with open(os.environ["GITHUB_ENV"], "a") as f:
+                  f.write("SEND_DISCORD=false\n")
+
+              raise SystemExit(0)
 
           members = [
               "뱁새",
@@ -99,7 +130,6 @@ jobs:
               }
           ]
 
-          # 한국 시간
           KST = timezone(timedelta(hours=9))
           now = datetime.now(KST)
           updated_at = now.strftime("%Y.%m.%d %H:%M")
@@ -172,7 +202,7 @@ jobs:
                           f"**{day_name}**　▸ -"
                       )
 
-                  # 목금토일 / 월화수 구분선
+                  # 목금토일 / 월화수 사이 구분선
                   if day_name == "일요일":
                       lines.append("────────────")
 
@@ -205,28 +235,80 @@ jobs:
                   ensure_ascii=False
               )
 
+          with open(
+              "/tmp/new_schedule_hash.txt",
+              "w",
+              encoding="utf-8"
+          ) as f:
+              f.write(digest + "\n")
+
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write("SEND_DISCORD=true\n")
+
           print("Discord payload created.")
+          print(f"Last update: {updated_at} KST")
           PY
 
-          echo "Creating NEW Discord message..."
+      - name: Update existing Discord message
+        if: env.SEND_DISCORD == 'true'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_MESSAGE_ID: ${{ secrets.DISCORD_MESSAGE_ID }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK secret is missing."
+            exit 1
+          fi
+
+          if [ -z "$DISCORD_MESSAGE_ID" ]; then
+            echo "DISCORD_MESSAGE_ID secret is missing."
+            exit 1
+          fi
+
+          echo "Updating existing Discord message..."
 
           HTTP_STATUS=$(curl \
             --silent \
             --show-error \
-            --output /tmp/discord_response.json \
+            --output /tmp/discord_response.txt \
             --write-out "%{http_code}" \
-            --request POST \
+            --request PATCH \
             --header "Content-Type: application/json" \
             --header "User-Agent: Mozilla/5.0" \
             --data-binary "@/tmp/discord_payload.json" \
-            "${DISCORD_WEBHOOK}?wait=true")
+            "${DISCORD_WEBHOOK}/messages/${DISCORD_MESSAGE_ID}")
 
           echo "Discord HTTP status: $HTTP_STATUS"
 
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Discord rejected the new message."
-            cat /tmp/discord_response.json
+            echo "Discord rejected the message update."
+            cat /tmp/discord_response.txt
             exit 1
           fi
 
-          echo "New Discord message created successfully."
+          echo "Existing Discord message updated successfully."
+
+      - name: Save schedule state
+        if: env.SEND_DISCORD == 'true'
+        run: |
+          mkdir -p .github
+
+          cp \
+            /tmp/new_schedule_hash.txt \
+            .github/last_schedule_hash.txt
+
+          git config user.name "github-actions[bot]"
+
+          git config \
+            user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .github/last_schedule_hash.txt
+
+          if git diff --cached --quiet; then
+            echo "No state change to commit."
+            exit 0
+          fi
+
+          git commit -m "Update raid schedule sync state"
+          git push
