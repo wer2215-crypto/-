@@ -243,8 +243,8 @@
 
     function renderGrid() {
       let html = "<thead><tr><th>시간</th>";
-      days.forEach((day, index) => {
-        html += `<th>${day}<div style="margin-top:5px"><button type="button" class="day-head-btn" data-day-action="${index}" style="padding:3px 5px;min-height:26px;font-size:10px">요일 선택</button></div></th>`;
+      days.forEach(day => {
+        html += `<th>${day}</th>`;
       });
       html += "</tr></thead><tbody>";
       hours.forEach((hour, hourIndex) => {
@@ -254,15 +254,6 @@
       });
       html += "</tbody>";
       table.innerHTML = html;
-      table.querySelectorAll("[data-day-action]").forEach(button => {
-        button.addEventListener("click", () => {
-          $("bulkDay").value = button.dataset.dayAction;
-          $("bulkStart").value = "10:00";
-          $("bulkEnd").value = "02:00";
-          $("bulkValue").value = "true";
-          applyDayBulk();
-        });
-      });
     }
 
     function hourIndexFromValue(value) {
@@ -552,7 +543,7 @@
       <button id="resetBtn" class="danger">현재 멤버 일정 초기화</button>
       <button id="resetAllBtn" class="danger">전체 파티원 일정 초기화</button>
     </div>
-    <p class="help">요일 제목 아래의 '요일 선택' 버튼은 해당 요일의 10:00~02:00 전체를 불가로 등록합니다. 특정 시간대만 바꾸려면 시작·종료 시간을 조정하세요. 초기화한 변경 사항은 저장 버튼을 눌러야 다른 사람에게 반영됩니다.</p>
+    <p class="help">요일과 시간 범위를 위에서 선택한 뒤 적용 버튼을 눌러 일괄 변경하세요. 초기화 및 일정 변경 사항은 저장 버튼을 눌러야 다른 사람에게 반영됩니다.</p>
   </section>
 
   <section class="panel">
