@@ -1,4 +1,3 @@
-
 name: Raid Schedule Discord Sync
 
 on:
@@ -16,116 +15,292 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Firebase and notify Discord
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      - name: Read Firebase and make Discord message
         run: |
           python - <<'PY'
-          import os, json, hashlib, urllib.request, urllib.error, subprocess
+          import json
+          import urllib.request
+          import hashlib
+          import os
 
-          firebase_url = "https://raid-c2ee1-default-rtdb.firebaseio.com/raid_schedule.json"
-          webhook = os.environ.get("DISCORD_WEBHOOK", "").strip()
+          FIREBASE_URL = "https://raid-c2ee1-default-rtdb.firebaseio.com/raid_schedule.json"
 
-          if not webhook:
-              raise SystemExit("DISCORD_WEBHOOK secret is not configured.")
-
-          req = urllib.request.Request(firebase_url)
-          with urllib.request.urlopen(req, timeout=20) as response:
-              data = json.loads(response.read().decode())
+          # Firebase 데이터 읽기
+          with urllib.request.urlopen(FIREBASE_URL, timeout=20) as response:
+              data = json.loads(response.read().decode("utf-8"))
 
           if not isinstance(data, list):
               raise SystemExit("Firebase data format is not an array.")
 
+          print("Firebase read: OK")
+
+          # 현재 일정의 해시값
           digest = hashlib.sha256(
-              json.dumps(data, ensure_ascii=False, sort_keys=True).encode()
+              json.dumps(
+                  data,
+                  ensure_ascii=False,
+                  sort_keys=True
+              ).encode("utf-8")
           ).hexdigest()
 
           state_file = ".github/last_schedule_hash.txt"
+
           old_hash = ""
           if os.path.exists(state_file):
-              with open(state_file, encoding="utf-8") as f:
+              with open(state_file, "r", encoding="utf-8") as f:
                   old_hash = f.read().strip()
 
-          if digest == old_hash:
-              print("No schedule changes. Discord notification skipped.")
+          # 일정이 그대로라면 Discord 전송 생략
+          if old_hash == digest:
+              print("Schedule unchanged.")
+              print("SEND_DISCORD=false")
+
+              with open(os.environ["GITHUB_ENV"], "a") as f:
+                  f.write("SEND_DISCORD=false\n")
+
               raise SystemExit(0)
 
-          members = ["뱁새", "담곰", "두지", "깜고", "이리", "시요", "도찌"]
-          days = ["목요일", "금요일", "토요일", "일요일", "월요일", "화요일", "수요일"]
-          hours = [
-              "10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
-              "16:00", "17:00", "18:00", "19:00", "20:00", "21:00",
-              "22:00", "23:00", "24:00", "01:00", "02:00"
+          members = [
+              "뱁새",
+              "담곰",
+              "두지",
+              "깜고",
+              "이리",
+              "시요",
+              "도찌"
           ]
+
+          days = [
+              "목요일",
+              "금요일",
+              "토요일",
+              "일요일",
+              "월요일",
+              "화요일",
+              "수요일"
+          ]
+
+          hours = [
+              "10:00",
+              "11:00",
+              "12:00",
+              "13:00",
+              "14:00",
+              "15:00",
+              "16:00",
+              "17:00",
+              "18:00",
+              "19:00",
+              "20:00",
+              "21:00",
+              "22:00",
+              "23:00",
+              "24:00",
+              "01:00",
+              "02:00"
+          ]
+
           parties = [
-              ("두지팟", ["두지", "시요", "뱁새", "담곰", "이리", "깜고"], 0x9B59B6),
-              ("도찌팟", ["도찌", "뱁새", "담곰", "이리", "깜고"], 0xE91E63)
+              {
+                  "name": "두지팟",
+                  "members": [
+                      "두지",
+                      "시요",
+                      "뱁새",
+                      "담곰",
+                      "이리",
+                      "깜고"
+                  ],
+                  "color": 0x9B59B6
+              },
+              {
+                  "name": "도찌팟",
+                  "members": [
+                      "도찌",
+                      "뱁새",
+                      "담곰",
+                      "이리",
+                      "깜고"
+                  ],
+                  "color": 0xE91E63
+              }
           ]
 
           embeds = []
-          for name, party_members, color in parties:
+
+          for party in parties:
+
+              party_indices = [
+                  members.index(name)
+                  for name in party["members"]
+              ]
+
               fields = []
-              for d, day in enumerate(days):
-                  available = []
-                  for h, _ in enumerate(hours):
-                      row = data[d][h] if d < len(data) and h < len(data[d]) else []
-                      can_play = True
-                      for member in party_members:
-                          idx = members.index(member)
-                          if not isinstance(row, list) or idx >= len(row) or row[idx] is not False:
-                              can_play = False
-                              break
-                      available.append(can_play)
+
+              for day_index, day_name in enumerate(days):
+
+                  common = []
+
+                  for hour_index in range(len(hours)):
+
+                      try:
+                          row = data[day_index][hour_index]
+                      except (IndexError, TypeError):
+                          row = []
+
+                      # false = 가능
+                      available = all(
+                          isinstance(row, list)
+                          and member_index < len(row)
+                          and row[member_index] is False
+                          for member_index in party_indices
+                      )
+
+                      common.append(available)
 
                   ranges = []
                   start = None
-                  for h in range(len(available) + 1):
-                      if h < len(available) and available[h]:
+
+                  for h in range(len(common) + 1):
+
+                      if h < len(common) and common[h]:
+
                           if start is None:
                               start = h
+
                       elif start is not None:
-                          end_label = hours[h] if h < len(hours) else "03:00"
-                          ranges.append(f"{hours[start]}–{end_label}")
+
+                          end_label = (
+                              hours[h]
+                              if h < len(hours)
+                              else "03:00"
+                          )
+
+                          ranges.append(
+                              f"{hours[start]}–{end_label}"
+                          )
+
                           start = None
 
                   fields.append({
-                      "name": day,
-                      "value": ", ".join(ranges) if ranges else "공통 가능 시간 없음",
+                      "name": day_name,
+                      "value": (
+                          ", ".join(ranges)
+                          if ranges
+                          else "공통 가능 시간 없음"
+                      ),
                       "inline": False
                   })
 
               embeds.append({
-                  "title": f"{name} · 공통 가능 시간",
-                  "description": "고정 파티원 전원이 가능한 시간입니다.",
-                  "color": color,
+                  "title": f"{party['name']} · 공통 가능 시간",
+                  "description":
+                      "고정 파티원 전원이 가능한 시간입니다.",
+                  "color": party["color"],
                   "fields": fields
               })
 
-          payload = json.dumps({
+          payload = {
               "content": "📅 레이드 일정이 변경되었습니다.",
               "embeds": embeds
-          }, ensure_ascii=False).encode()
+          }
 
-          req = urllib.request.Request(
-              webhook,
-              data=payload,
-              headers={"Content-Type": "application/json"},
-              method="POST"
-          )
-          with urllib.request.urlopen(req, timeout=20) as response:
-              print("Discord notification sent:", response.status)
+          with open(
+              "/tmp/discord_payload.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+              json.dump(
+                  payload,
+                  f,
+                  ensure_ascii=False
+              )
 
-          os.makedirs(".github", exist_ok=True)
-          with open(state_file, "w", encoding="utf-8") as f:
+          # 성공한 뒤 저장할 새 해시
+          with open(
+              "/tmp/new_schedule_hash.txt",
+              "w",
+              encoding="utf-8"
+          ) as f:
               f.write(digest + "\n")
 
-          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
-          subprocess.run(["git", "add", state_file], check=True)
-          subprocess.run(["git", "commit", "-m", "Update raid schedule sync state"], check=True)
-          subprocess.run(["git", "push"], check=True)
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write("SEND_DISCORD=true\n")
+
+          print("Discord payload created.")
           PY
+
+      - name: Send to Discord
+        if: env.SEND_DISCORD == 'true'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK secret is missing."
+            exit 1
+          fi
+
+          echo "Sending message to Discord..."
+
+          HTTP_STATUS=$(curl \
+            --silent \
+            --show-error \
+            --output /tmp/discord_response.txt \
+            --write-out "%{http_code}" \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "User-Agent: Mozilla/5.0" \
+            --data-binary "@/tmp/discord_payload.json" \
+            "$DISCORD_WEBHOOK")
+
+          echo "Discord HTTP status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" != "204" ] && \
+             [ "$HTTP_STATUS" != "200" ]; then
+
+            echo "Discord rejected the request."
+
+            cat /tmp/discord_response.txt
+
+            exit 1
+          fi
+
+          echo "Discord notification sent successfully."
+
+      - name: Save schedule state
+        if: env.SEND_DISCORD == 'true'
+        run: |
+          mkdir -p .github
+
+          cp \
+            /tmp/new_schedule_hash.txt \
+            .github/last_schedule_hash.txt
+
+          git config \
+            user.name \
+            "github-actions[bot]"
+
+          git config \
+            user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            .github/last_schedule_hash.txt
+
+          if git diff \
+            --cached \
+            --quiet; then
+
+            echo "No state change to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "Update raid schedule sync state"
+
+          git push
