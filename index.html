@@ -127,6 +127,10 @@
     .party-start-title { margin: 0 0 8px; font-size: 13px; color: #f8fafc; }
     .party-start-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
     .party-start-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .party-time-selects { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: center; }
+    .party-time-selects span { color: var(--muted); font-weight: 700; }
+    .party-note-field { margin-top: 8px; }
+    .party-note-field input { width: 100%; }
     .party-start-actions button { flex: 1; }
     .party-start-current { margin-top: 8px; font-size: 12px; color: #fde68a; min-height: 18px; }
     .party-start-input-wrap { position: relative; }
@@ -333,15 +337,32 @@
                 </div>
               </div>
               <div class="field">
-                <label for="${party.id}Time">시간</label>
-                <div class="party-start-input-wrap">
-                  <span class="party-start-placeholder ${savedStart?.time ? "hidden" : ""}">선택안됨</span>
-                  <input type="time" id="${party.id}Time" step="300" value="${savedStart?.time || ""}" data-party-input>
+                <label>시간</label>
+                <div class="party-time-selects">
+                  <select id="${party.id}Hour">
+                    <option value="">시</option>
+                    ${makeHourOptions(savedStart?.time || "")}
+                  </select>
+                  <span>:</span>
+                  <select id="${party.id}Minute">
+                    <option value="">분</option>
+                    ${makeMinuteOptions(savedStart?.time || "")}
+                  </select>
                 </div>
               </div>
             </div>
+            <div class="field party-note-field">
+              <label for="${party.id}Note">특이사항</label>
+              <input
+                type="text"
+                id="${party.id}Note"
+                maxlength="80"
+                placeholder=""
+                value="${escapeHtml(savedStart?.note || "")}"
+              >
+            </div>
             <div class="party-start-actions">
-              <button type="button" class="success" data-party-save="${party.id}">시간 저장</button>
+              <button type="button" class="success" data-party-save="${party.id}">저장</button>
               <button type="button" class="danger" data-party-clear="${party.id}">지정 취소</button>
             </div>
             <div class="party-start-current">${currentText}</div>
@@ -579,6 +600,30 @@
     window.addEventListener("offline", () => setStatus("오프라인 · 저장할 수 없습니다.", "pending"));
 
 
+    function makeHourOptions(timeValue = "") {
+      const selected = timeValue ? timeValue.split(":")[0] : "";
+      return Array.from({ length: 24 }, (_, hour) => {
+        const value = String(hour).padStart(2, "0");
+        return `<option value="${value}"${value === selected ? " selected" : ""}>${value}시</option>`;
+      }).join("");
+    }
+
+    function makeMinuteOptions(timeValue = "") {
+      const selected = timeValue ? timeValue.split(":")[1] : "";
+      return Array.from({ length: 12 }, (_, index) => index * 5).map(minute => {
+        const value = String(minute).padStart(2, "0");
+        return `<option value="${value}"${value === selected ? " selected" : ""}>${value}분</option>`;
+      }).join("");
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
     function formatPartyStart(dateValue, timeValue) {
       if (!dateValue || !timeValue) return "";
       const date = parseLocalDate(dateValue);
@@ -597,13 +642,20 @@
 
     async function savePartyStart(partyId) {
       const dateValue = $(`${partyId}Date`)?.value;
-      const timeValue = $(`${partyId}Time`)?.value;
+      const hourValue = $(`${partyId}Hour`)?.value;
+      const minuteValue = $(`${partyId}Minute`)?.value;
+      const timeValue = hourValue && minuteValue ? `${hourValue}:${minuteValue}` : "";
+      const noteValue = ($(`${partyId}Note`)?.value || "").trim();
       if (!dateValue || !timeValue) return alert("날짜와 시간을 모두 선택해주세요.");
       if (!isDateInCurrentWeek(dateValue)) {
         if (!confirm("현재 일정표 주간 밖의 날짜입니다. 그래도 이 시간으로 저장할까요?")) return;
       }
       try {
-        await set(ref(db, `raid_party_start/${partyId}`), { date: dateValue, time: timeValue });
+        await set(ref(db, `raid_party_start/${partyId}`), {
+          date: dateValue,
+          time: timeValue,
+          note: noteValue
+        });
         setStatus(`${parties.find(p => p.id === partyId)?.name || "파티"} 확정 시간 저장 완료`, "online");
       } catch (error) {
         console.error("Party start save failed:", error);
