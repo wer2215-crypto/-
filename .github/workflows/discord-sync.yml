@@ -281,7 +281,7 @@ jobs:
               ]
 
               lines = [
-                  "━━━━━━ ✦ ━━━━━━"
+                  "──────────────"
               ]
 
               for day_index, day_name in enumerate(days):
@@ -399,7 +399,7 @@ jobs:
                       ]
 
                       embed_title = (
-                          f'{party["name"]} ▸ '
+                          f'{party["name"]}  ▸ '
                           f'{confirmed_date.month}/'
                           f'{confirmed_date.day}'
                           f'({weekday_text}) '
