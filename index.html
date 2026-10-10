@@ -79,6 +79,7 @@
     th:first-child, td:first-child { position: sticky; left: 0; min-width: 60px; z-index: 4; }
     th:first-child { z-index: 8; background: #0f172a; }
     td.cell { cursor: crosshair; touch-action: pan-x pan-y; font-weight: 700; transition: filter .08s ease; }
+    @media (max-width: 768px) { td.cell { cursor: pointer; } }
     td.cell:hover { filter: brightness(1.2); }
     td.cell.available { background: rgba(34,197,94,.2); color: #4ade80; }
     td.cell.unavail-1 { background: rgba(249,115,22,.25); color: #fb923c; }
@@ -145,7 +146,6 @@
     let undoStack = [];
     let isDirty = false;
     let isSaving = false;
-    let isApplyingRemote = false;
     let dragState = null;
     let lastSelectedCells = [];
 
@@ -192,8 +192,18 @@
       updateControls();
     }
 
+    function getSelectedMember() {
+      if (memberSelect.value === "") {
+        setStatus("먼저 닉네임을 선택해주세요.", "pending");
+        memberSelect.focus();
+        return null;
+      }
+      return Number(memberSelect.value);
+    }
+
     function changeCells(cells, value, label) {
-      const member = Number(memberSelect.value);
+      const member = getSelectedMember();
+      if (member === null) return;
       const uniqueCells = [...new Map(cells.map(c => [`${c.day}-${c.hour}`, c])).values()];
       if (!uniqueCells.length) return;
       const changed = uniqueCells.some(({day, hour}) => workingData[day]?.[hour]?.[member] !== value);
@@ -246,11 +256,11 @@
       table.innerHTML = html;
       table.querySelectorAll("[data-day-action]").forEach(button => {
         button.addEventListener("click", () => {
-          $("rangeDay").value = button.dataset.dayAction;
-          $("rangeStart").value = "10:00";
-          $("rangeEnd").value = "02:00";
-          $("rangeValue").value = "true";
-          applyRange();
+          $("bulkDay").value = button.dataset.dayAction;
+          $("bulkStart").value = "10:00";
+          $("bulkEnd").value = "02:00";
+          $("bulkValue").value = "true";
+          applyDayBulk();
         });
       });
     }
@@ -269,19 +279,6 @@
       return Array.from({ length: hi - lo + 1 }, (_, i) => ({ day: dayIndex, hour: lo + i }));
     }
 
-    function applyRange() {
-      const day = Number($("rangeDay").value);
-      const start = $("rangeStart").value;
-      const end = $("rangeEnd").value;
-      const value = $("rangeValue").value === "true";
-      const cells = getRangeCells(day, start, end);
-      if (!cells.length) {
-        alert("시작 시간과 종료 시간을 확인해주세요.");
-        return;
-      }
-      changeCells(cells, value, `${days[day]} ${start}~${end} ${value ? "불가 등록" : "불가 해제"}`);
-    }
-
     function applyDayBulk() {
       const day = Number($("bulkDay").value);
       const start = $("bulkStart").value;
@@ -293,11 +290,12 @@
     }
 
     function copyDay() {
+      const member = getSelectedMember();
+      if (member === null) return;
       const fromDay = Number($("copyFrom").value);
       const toDays = [...$("copyTo").selectedOptions].map(option => Number(option.value));
       if (!toDays.length) return alert("복사할 대상 요일을 하나 이상 선택해주세요.");
       if (toDays.includes(fromDay)) return alert("원본 요일은 대상에서 제외해주세요.");
-      const member = Number(memberSelect.value);
       snapshotUndo(`${days[fromDay]}요일 일정 복사`);
       for (const toDay of toDays) {
         for (let h = 0; h < hours.length; h++) {
@@ -367,13 +365,31 @@
       renderGrid();
     }
 
+    function isMobileLayout() {
+      return window.matchMedia("(max-width: 768px)").matches;
+    }
+
+    // 모바일에서는 드래그 입력을 사용하지 않고, 아래 click 이벤트로 한 칸씩 변경합니다.
+    table.addEventListener("click", event => {
+      if (!isMobileLayout() || isSaving) return;
+      const cell = event.target.closest("td[data-day][data-hour]");
+      if (!cell || !table.contains(cell)) return;
+      const day = Number(cell.dataset.day);
+      const hour = Number(cell.dataset.hour);
+      const member = getSelectedMember();
+      if (member === null) return;
+      changeCells([{ day, hour }], !workingData[day][hour][member], `${days[day]} ${hours[hour]} 한 칸 변경`);
+    });
+
     table.addEventListener("pointerdown", event => {
+      if (isMobileLayout()) return;
       const cell = event.target.closest("td[data-day][data-hour]");
       if (!cell || isSaving) return;
+      const member = getSelectedMember();
+      if (member === null) return;
       // 터치 스크롤과 드래그 선택을 구분하기 위해 셀 입력에만 포인터 캡처를 사용합니다.
       const day = Number(cell.dataset.day);
       const hour = Number(cell.dataset.hour);
-      const member = Number(memberSelect.value);
       snapshotUndo("표에서 드래그 선택");
       dragState = {
         pointerId: event.pointerId,
@@ -409,16 +425,17 @@
 
     memberSelect.addEventListener("change", () => {
       lastSelectedCells = [];
+      setStatus(`선택한 멤버: ${members[Number(memberSelect.value)]}`, "online");
       renderGrid();
     });
-    $("rangeApply").addEventListener("click", applyRange);
     $("bulkApply").addEventListener("click", applyDayBulk);
     $("copyApply").addEventListener("click", copyDay);
     $("saveBtn").addEventListener("click", saveChanges);
     $("undoBtn").addEventListener("click", undo);
     $("resetBtn").addEventListener("click", () => {
+      const member = getSelectedMember();
+      if (member === null) return;
       if (!confirm("현재 선택한 멤버의 일정만 전부 가능으로 변경할까요?\n변경 사항은 저장 버튼을 눌러야 공유됩니다.")) return;
-      const member = Number(memberSelect.value);
       const cells = [];
       for (let d = 0; d < 7; d++) for (let h = 0; h < hours.length; h++) cells.push({ day: d, hour: h });
       snapshotUndo(`${members[member]} 일정 전체 해제`);
@@ -426,6 +443,25 @@
       markDirty();
       renderGrid();
       setStatus(`${members[member]}님의 불가 일정 전체 해제 · 저장 대기`, "pending");
+    });
+    $("resetAllBtn").addEventListener("click", () => {
+      if (!confirm("⚠️ 전체 파티원 일정 초기화\n\n뱁새, 담곰, 두지, 깜고, 이리, 시요, 도찌 7명 전원의 불가 일정이 모두 해제됩니다.\n\n계속하시겠습니까?")) return;
+      const cells = [];
+      for (let d = 0; d < 7; d++) for (let h = 0; h < hours.length; h++) cells.push({ day: d, hour: h });
+      const hasChanges = workingData.some(day => day.some(hour => hour.some(Boolean)));
+      if (!hasChanges) {
+        alert("초기화할 불가 일정이 없습니다.");
+        return;
+      }
+      snapshotUndo("전체 파티원 일정 초기화");
+      for (let d = 0; d < 7; d++) {
+        for (let h = 0; h < hours.length; h++) {
+          for (let m = 0; m < members.length; m++) workingData[d][h][m] = false;
+        }
+      }
+      markDirty();
+      renderGrid();
+      setStatus("전체 파티원 일정 초기화 · 저장 버튼을 눌러 반영하세요.", "pending");
     });
     $("discardBtn").addEventListener("click", () => {
       if (!isDirty) return;
@@ -461,17 +497,13 @@
     function populateSelect(id, options) {
       $(id).innerHTML = options.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
     }
-    populateSelect("rangeDay", days.map((day, i) => [i, day + "요일"]));
     populateSelect("bulkDay", days.map((day, i) => [i, day + "요일"]));
     populateSelect("copyFrom", days.map((day, i) => [i, day + "요일"]));
     $("copyTo").innerHTML = days.map((day, i) => `<option value="${i}">${day}요일</option>`).join("");
     const timeOptions = hours.map(hour => `<option value="${hour}">${hour}</option>`).join("");
-    ["rangeStart", "rangeEnd", "bulkStart", "bulkEnd"].forEach(id => { $(id).innerHTML = timeOptions; });
-    $("rangeStart").value = "18:00";
-    $("rangeEnd").value = "22:00";
+    ["bulkStart", "bulkEnd"].forEach(id => { $(id).innerHTML = timeOptions; });
     $("bulkStart").value = "10:00";
     $("bulkEnd").value = "02:00";
-    $("rangeValue").value = "true";
     $("bulkValue").value = "true";
     renderGrid();
     updateControls();
@@ -485,7 +517,8 @@
     <div class="controls">
       <div class="field">
         <label for="memberSelect">닉네임 선택</label>
-        <select id="memberSelect">
+        <select id="memberSelect" required>
+          <option value="" selected disabled>닉네임을 선택해주세요</option>
           <option value="0">뱁새</option>
           <option value="1">담곰</option>
           <option value="2">두지</option>
@@ -503,19 +536,7 @@
       <span><i id="statusDot" class="status-dot"></i><span id="statusText">Firebase 연결 확인 중...</span></span>
       <span id="dirtyText">변경 사항 확인 중...</span>
     </div>
-    <p class="help">표의 칸을 누르거나 드래그하면 선택한 멤버의 불가/가능 상태가 바뀝니다. 수정 후에는 <b>변경 사항 저장</b>을 눌러야 다른 사람에게 반영됩니다.</p>
-  </section>
-
-  <section class="panel">
-    <h3 class="section-title">⏱️ 시간 범위 일괄 입력</h3>
-    <div class="form-grid">
-      <div class="field"><label for="rangeDay">요일</label><select id="rangeDay"></select></div>
-      <div class="field"><label for="rangeStart">시작 시간</label><select id="rangeStart"></select></div>
-      <div class="field"><label for="rangeEnd">종료 시간 (포함)</label><select id="rangeEnd"></select></div>
-      <div class="field"><label for="rangeValue">변경할 상태</label><select id="rangeValue"><option value="true">불가로 등록</option><option value="false">가능으로 해제</option></select></div>
-    </div>
-    <div class="button-row"><button id="rangeApply" class="primary">선택한 시간대 적용</button></div>
-    <p class="help">예: 토요일 18:00~22:00을 불가로 등록하면 18시, 19시, 20시, 21시, 22시 칸이 변경됩니다. 표에 표시된 시간 순서 기준으로 범위를 선택합니다.</p>
+    <p class="help">PC에서는 표의 칸을 클릭하거나 드래그하고, 모바일에서는 칸을 한 번 터치해 선택한 멤버의 불가/가능 상태를 바꿉니다. 수정 후에는 <b>변경 사항 저장</b>을 눌러야 다른 사람에게 반영됩니다.</p>
   </section>
 
   <section class="panel">
@@ -528,9 +549,10 @@
     </div>
     <div class="button-row">
       <button id="bulkApply" class="primary">선택한 요일·시간대 적용</button>
-      <button id="resetBtn" class="danger">현재 멤버 일정 전체 해제</button>
+      <button id="resetBtn" class="danger">현재 멤버 일정 초기화</button>
+      <button id="resetAllBtn" class="danger">전체 파티원 일정 초기화</button>
     </div>
-    <p class="help">요일 제목 아래의 '요일 선택' 버튼은 해당 요일의 10:00~02:00 전체를 불가로 등록합니다. 특정 시간대만 바꾸려면 위의 범위를 조정하세요.</p>
+    <p class="help">요일 제목 아래의 '요일 선택' 버튼은 해당 요일의 10:00~02:00 전체를 불가로 등록합니다. 특정 시간대만 바꾸려면 시작·종료 시간을 조정하세요. 초기화한 변경 사항은 저장 버튼을 눌러야 다른 사람에게 반영됩니다.</p>
   </section>
 
   <section class="panel">
