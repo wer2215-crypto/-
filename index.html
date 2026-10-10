@@ -94,6 +94,17 @@
     .form-grid > .field { min-width: 135px; }
     .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .notice { color: #fde68a; font-size: 12px; line-height: 1.5; margin-top: 8px; }
+    .party-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .party-summary-card { border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; min-width: 0; background: rgba(15,23,42,.45); }
+    .party-summary-card h4 { margin: 0 0 6px; font-size: 15px; }
+    .party-members { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .availability-days { display: grid; gap: 7px; }
+    .availability-day { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 12px; line-height: 1.5; }
+    .availability-day-name { font-weight: 700; color: #cbd5e1; }
+    .availability-ranges { color: #86efac; overflow-wrap: anywhere; }
+    .availability-none { color: #fca5a5; }
+    .summary-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 10px 0 0; }
+    @media (max-width: 600px) { .party-summary-grid { grid-template-columns: 1fr; } }
     @media (max-width: 600px) {
       body { padding: 10px 6px 20px; }
       .panel { padding: 10px; }
@@ -132,6 +143,12 @@
       "16:00", "17:00", "18:00", "19:00", "20:00", "21:00",
       "22:00", "23:00", "24:00", "01:00", "02:00"
     ];
+    // 각 파티의 고정 인원. scheduleData/workingData에서 불가(false가 아닌 값) 여부를 확인해 공통 가능 시간을 계산합니다.
+    const parties = [
+      { id: "dujiParty", name: "두지팟", members: ["두지", "시요", "뱁새", "담곰", "이리", "깜고"] },
+      { id: "dozziParty", name: "도찌팟", members: ["도찌", "뱁새", "담곰", "이리", "깜고"] }
+    ];
+    const memberIndex = Object.fromEntries(members.map((name, index) => [name, index]));
 
     const makeEmptyData = () =>
       Array.from({ length: 7 }, () =>
@@ -241,6 +258,32 @@
       return `<td class="${className}" data-day="${dayIndex}" data-hour="${hourIndex}" aria-label="${days[dayIndex]} ${hours[hourIndex]} ${text}">${text}${names}</td>`;
     }
 
+    function renderPartyAvailability() {
+      const container = $("partySummaryGrid");
+      if (!container) return;
+      container.innerHTML = parties.map(party => {
+        const indices = party.members.map(name => memberIndex[name]);
+        const dayRows = days.map((day, dayIndex) => {
+          const common = hours.map((_, hourIndex) =>
+            indices.every(member => workingData[dayIndex][hourIndex][member] === false)
+          );
+          const ranges = [];
+          let start = -1;
+          for (let h = 0; h <= common.length; h++) {
+            if (h < common.length && common[h]) {
+              if (start === -1) start = h;
+            } else if (start !== -1) {
+              const endLabel = h < hours.length ? hours[h] : "03:00";
+              ranges.push(`${hours[start]}–${endLabel}`);
+              start = -1;
+            }
+          }
+          return `<div class="availability-day"><span class="availability-day-name">${day}요일</span><span class="availability-ranges ${ranges.length ? "" : "availability-none"}">${ranges.length ? ranges.join(", ") : "공통 가능 시간 없음"}</span></div>`;
+        }).join("");
+        return `<article class="party-summary-card"><h4>${party.name} · ${party.members.length}명</h4><p class="party-members">고정 인원: ${party.members.join(" · ")}</p><div class="availability-days">${dayRows}</div></article>`;
+      }).join("");
+    }
+
     function renderGrid() {
       let html = "<thead><tr><th>시간</th>";
       days.forEach(day => {
@@ -254,6 +297,7 @@
       });
       html += "</tbody>";
       table.innerHTML = html;
+      renderPartyAvailability();
     }
 
     function hourIndexFromValue(value) {
@@ -503,6 +547,12 @@
 <body>
   <h2>🕊️🐻‍❄️🌸🐈‍⬛🐹😾🦔 일정 공유표 [10/15-10/21]</h2>
   <p class="subtitle">레이드 보상 날로 먹게 해주세요</p>
+
+  <section class="panel" aria-labelledby="partySummaryTitle">
+    <h3 class="section-title" id="partySummaryTitle">🗓️ 파티별 공통 가능 시간</h3>
+    <div class="party-summary-grid" id="partySummaryGrid" aria-live="polite"></div>
+    <p class="summary-note">고정 파티원 전원이 가능으로 표시된 시간만 보여줍니다. 개인 일정 변경 시 자동으로 다시 계산되며, 다른 사용자에게 공유하려면 기존처럼 저장 버튼을 눌러주세요.</p>
+  </section>
 
   <section class="panel">
     <div class="controls">
