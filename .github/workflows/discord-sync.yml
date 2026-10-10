@@ -3,7 +3,7 @@ name: Raid Schedule Discord Sync
 on:
   schedule:
     # 1시간마다 Firebase 일정 확인
-    - cron: "0 * * * *"
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -421,7 +421,7 @@ jobs:
                       "──────────────"
                   )
                   lines.append(
-                      f"✔ {note.strip()}"
+                      f"✅ {note.strip()}"
                   )
 
               # 파티 Embed
