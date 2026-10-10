@@ -218,7 +218,7 @@ jobs:
           payload = {
               "content": (
                   "📅 **레이드 일정**\n"
-                  "🔗 [일정 입력·수정하러 가기]"
+                  "🔗 [일정 입력·수정하기]"
                   "(https://wer2215-crypto.github.io/-/)"
               ),
               "embeds": embeds
