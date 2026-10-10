@@ -116,6 +116,13 @@
       button { min-height: 42px; }
       th, td { min-width: 68px; padding: 8px 4px; }
     }
+
+    .title-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin: 8px 0; }
+    .title-row h2 { margin: 0; }
+    .week-picker-btn { min-height: 34px; padding: 5px 9px; background: #1e293b; border-color: #475569; font-size: 16px; line-height: 1; }
+    .week-picker { position: relative; display: inline-flex; align-items: center; }
+    .week-picker input[type="date"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .week-save-state { width: 100%; text-align: center; color: var(--muted); font-size: 11px; min-height: 16px; }
   </style>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -135,6 +142,7 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     const scheduleRef = ref(db, "raid_schedule");
+    const weekRef = ref(db, "raid_schedule_week");
 
     const members = ["뱁새", "담곰", "두지", "깜고", "이리", "시요", "도찌"];
     const days = ["목", "금", "토", "일", "월", "화", "수"];
@@ -512,6 +520,81 @@
     window.addEventListener("online", () => setStatus(isDirty ? "온라인 · 저장되지 않은 변경 사항이 있습니다." : "온라인", isDirty ? "pending" : "online"));
     window.addEventListener("offline", () => setStatus("오프라인 · 저장할 수 없습니다.", "pending"));
 
+    // 선택한 날짜가 포함된 목요일~수요일 주간을 계산합니다.
+    function parseLocalDate(value) {
+      const [year, month, day] = value.split("-").map(Number);
+      return new Date(year, month - 1, day);
+    }
+
+    function toDateValue(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function getThursday(date) {
+      const result = new Date(date);
+      const day = result.getDay(); // 일=0 ... 목=4
+      const diff = (day - 4 + 7) % 7;
+      result.setDate(result.getDate() - diff);
+      result.setHours(0, 0, 0, 0);
+      return result;
+    }
+
+    function formatMD(date) {
+      return `${date.getMonth() + 1}/${date.getDate()}`;
+    }
+
+    function renderWeek(startValue) {
+      const start = parseLocalDate(startValue);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      $("weekRange").textContent = `[${formatMD(start)}-${formatMD(end)}]`;
+      $("weekDatePicker").value = startValue;
+    }
+
+    async function saveSelectedWeek(selectedValue) {
+      if (!selectedValue) return;
+      const thursday = getThursday(parseLocalDate(selectedValue));
+      const startValue = toDateValue(thursday);
+      renderWeek(startValue);
+      $("weekSaveState").textContent = "주간 저장 중...";
+      try {
+        await set(weekRef, startValue);
+        $("weekSaveState").textContent = "선택한 주간이 저장되었습니다.";
+        setTimeout(() => { $("weekSaveState").textContent = ""; }, 1800);
+      } catch (error) {
+        console.error("Week save failed:", error);
+        $("weekSaveState").textContent = "주간 저장에 실패했습니다.";
+        alert("주간 저장에 실패했습니다. Firebase 연결을 확인해주세요.");
+      }
+    }
+
+    $("weekPickerBtn").addEventListener("click", () => {
+      const picker = $("weekDatePicker");
+      if (typeof picker.showPicker === "function") picker.showPicker();
+      else picker.click();
+    });
+
+    $("weekDatePicker").addEventListener("change", event => {
+      saveSelectedWeek(event.target.value);
+    });
+
+    // 선택된 주간도 Firebase에서 실시간 동기화합니다.
+    onValue(weekRef, snapshot => {
+      const value = snapshot.val();
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        renderWeek(value);
+      } else {
+        // 기존 표의 기간을 최초 기본값으로 유지합니다.
+        renderWeek("2026-10-15");
+      }
+    }, error => {
+      console.error("Week read failed:", error);
+      $("weekSaveState").textContent = "주간 정보를 불러오지 못했습니다.";
+    });
+
     // Firebase 변경 사항을 구독합니다. 로컬 미저장 수정이 있을 때 원격 데이터로 덮어쓰지 않습니다.
     onValue(scheduleRef, snapshot => {
       const remote = normalizeData(snapshot.val());
@@ -545,7 +628,14 @@
   </script>
 </head>
 <body>
-  <h2>🕊️🐻‍❄️🌸🐈‍⬛🐹😾🦔 일정 공유표 [10/15-10/21]</h2>
+  <div class="title-row">
+    <h2>🕊️🐻‍❄️🌸🐈‍⬛🐹😾🦔 일정 공유표 <span id="weekRange">[10/15-10/21]</span></h2>
+    <span class="week-picker">
+      <button type="button" id="weekPickerBtn" class="week-picker-btn" title="일정 주간 선택" aria-label="일정 주간 선택">📅</button>
+      <input type="date" id="weekDatePicker" value="2026-10-15" aria-label="일정 주간 날짜 선택">
+    </span>
+    <div id="weekSaveState" class="week-save-state" aria-live="polite"></div>
+  </div>
   <p class="subtitle">레이드 보상 날로 먹게 해주세요</p>
 
   <section class="panel" aria-labelledby="partySummaryTitle">
