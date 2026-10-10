@@ -30,19 +30,88 @@ jobs:
           import os
           from datetime import datetime, timezone, timedelta
 
-          FIREBASE_URL = "https://raid-c2ee1-default-rtdb.firebaseio.com/raid_schedule.json"
+          FIREBASE_BASE = "https://raid-c2ee1-default-rtdb.firebaseio.com"
 
-          with urllib.request.urlopen(FIREBASE_URL, timeout=20) as response:
-              data = json.loads(response.read().decode("utf-8"))
+          # -----------------------------
+          # Firebase 읽기
+          # -----------------------------
+
+          with urllib.request.urlopen(
+              f"{FIREBASE_BASE}/raid_schedule.json",
+              timeout=20
+          ) as response:
+              data = json.loads(
+                  response.read().decode("utf-8")
+              )
 
           if not isinstance(data, list):
-              raise SystemExit("Firebase data format is not an array.")
+              raise SystemExit(
+                  "Firebase schedule data format is not an array."
+              )
 
-          print("Firebase read: OK")
+          print("Firebase schedule read: OK")
+
+          # 선택된 주간 읽기
+          try:
+              with urllib.request.urlopen(
+                  f"{FIREBASE_BASE}/raid_schedule_week.json",
+                  timeout=20
+              ) as response:
+                  week_data = json.loads(
+                      response.read().decode("utf-8")
+                  )
+          except Exception as error:
+              print("Week data read failed:", error)
+              week_data = None
+
+          print("Firebase week read: OK")
+
+          # -----------------------------
+          # 주간 표시 문자열 만들기
+          # -----------------------------
+
+          week_text = ""
+
+          if isinstance(week_data, dict):
+              start_date = week_data.get("startDate")
+              end_date = week_data.get("endDate")
+
+              try:
+                  if start_date and end_date:
+
+                      start = datetime.strptime(
+                          start_date,
+                          "%Y-%m-%d"
+                      )
+
+                      end = datetime.strptime(
+                          end_date,
+                          "%Y-%m-%d"
+                      )
+
+                      week_text = (
+                          f"[{start.month}/{start.day}"
+                          f"-{end.month}/{end.day}]"
+                      )
+
+              except ValueError:
+                  print("Invalid week date format.")
+
+          print("Week:", week_text or "(none)")
+
+          # -----------------------------
+          # 변경 여부 확인
+          # 일정 + 선택 주간을 함께 비교
+          # -----------------------------
+
+          combined_state = {
+              "schedule": data,
+              "week": week_data
+          }
 
           digest = hashlib.sha256(
               json.dumps(
-                  data,
+                  combined_state,
                   ensure_ascii=False,
                   sort_keys=True
               ).encode("utf-8")
@@ -52,17 +121,28 @@ jobs:
           old_hash = ""
 
           if os.path.exists(state_file):
-              with open(state_file, "r", encoding="utf-8") as f:
+              with open(
+                  state_file,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
                   old_hash = f.read().strip()
 
-          # 일정 변경이 없으면 Discord 메시지를 수정하지 않음
           if old_hash == digest:
-              print("Schedule unchanged.")
 
-              with open(os.environ["GITHUB_ENV"], "a") as f:
+              print("Schedule and week unchanged.")
+
+              with open(
+                  os.environ["GITHUB_ENV"],
+                  "a"
+              ) as f:
                   f.write("SEND_DISCORD=false\n")
 
               raise SystemExit(0)
+
+          # -----------------------------
+          # 일정 설정
+          # -----------------------------
 
           members = [
               "뱁새",
@@ -130,9 +210,20 @@ jobs:
               }
           ]
 
+          # -----------------------------
+          # 마지막 업데이트 시간
+          # -----------------------------
+
           KST = timezone(timedelta(hours=9))
           now = datetime.now(KST)
-          updated_at = now.strftime("%Y.%m.%d %H:%M")
+
+          updated_at = now.strftime(
+              "%Y.%m.%d %H:%M"
+          )
+
+          # -----------------------------
+          # Discord Embed 생성
+          # -----------------------------
 
           embeds = []
 
@@ -153,6 +244,7 @@ jobs:
 
                       try:
                           row = data[day_index][hour_index]
+
                       except (IndexError, TypeError):
                           row = []
 
@@ -171,7 +263,10 @@ jobs:
 
                   for h in range(len(common) + 1):
 
-                      if h < len(common) and common[h]:
+                      if (
+                          h < len(common)
+                          and common[h]
+                      ):
 
                           if start is None:
                               start = h
@@ -191,33 +286,51 @@ jobs:
                           start = None
 
                   if ranges:
+
                       time_text = " · ".join(ranges)
 
                       lines.append(
-                          f"**{day_name}**　▸ **{time_text}**"
+                          f"**{day_name}**　▸ "
+                          f"**{time_text}**"
                       )
 
                   else:
+
                       lines.append(
                           f"**{day_name}**　▸ -"
                       )
 
-                  # 목금토일 / 월화수 사이 구분선
                   if day_name == "일요일":
-                      lines.append("────────────")
+                      lines.append(
+                          "────────────"
+                      )
 
               embeds.append({
                   "title": party["name"],
                   "description": "\n".join(lines),
                   "color": party["color"],
                   "footer": {
-                      "text": f"🕒 마지막 업데이트 · {updated_at} (KST)"
+                      "text": (
+                          "🕒 마지막 업데이트 · "
+                          f"{updated_at} (KST)"
+                      )
                   }
               })
 
+          # -----------------------------
+          # Discord 상단 문구
+          # -----------------------------
+
+          if week_text:
+              title = (
+                  f"📅 **레이드 일정 {week_text}**"
+              )
+          else:
+              title = "📅 **레이드 일정**"
+
           payload = {
               "content": (
-                  "📅 **레이드 일정**\n"
+                  f"{title}\n"
                   "🔗 [일정 입력·수정하기]"
                   "(https://wer2215-crypto.github.io/-/)"
               ),
@@ -229,6 +342,7 @@ jobs:
               "w",
               encoding="utf-8"
           ) as f:
+
               json.dump(
                   payload,
                   f,
@@ -240,21 +354,36 @@ jobs:
               "w",
               encoding="utf-8"
           ) as f:
-              f.write(digest + "\n")
 
-          with open(os.environ["GITHUB_ENV"], "a") as f:
-              f.write("SEND_DISCORD=true\n")
+              f.write(
+                  digest + "\n"
+              )
+
+          with open(
+              os.environ["GITHUB_ENV"],
+              "a"
+          ) as f:
+
+              f.write(
+                  "SEND_DISCORD=true\n"
+              )
 
           print("Discord payload created.")
-          print(f"Last update: {updated_at} KST")
+          print(
+              f"Last update: {updated_at} KST"
+          )
+
           PY
 
       - name: Update existing Discord message
         if: env.SEND_DISCORD == 'true'
+
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           DISCORD_MESSAGE_ID: ${{ secrets.DISCORD_MESSAGE_ID }}
+
         run: |
+
           if [ -z "$DISCORD_WEBHOOK" ]; then
             echo "DISCORD_WEBHOOK secret is missing."
             exit 1
@@ -281,34 +410,48 @@ jobs:
           echo "Discord HTTP status: $HTTP_STATUS"
 
           if [ "$HTTP_STATUS" != "200" ]; then
+
             echo "Discord rejected the message update."
+
             cat /tmp/discord_response.txt
+
             exit 1
+
           fi
 
           echo "Existing Discord message updated successfully."
 
       - name: Save schedule state
         if: env.SEND_DISCORD == 'true'
+
         run: |
+
           mkdir -p .github
 
           cp \
             /tmp/new_schedule_hash.txt \
             .github/last_schedule_hash.txt
 
-          git config user.name "github-actions[bot]"
+          git config \
+            user.name \
+            "github-actions[bot]"
 
           git config \
             user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add .github/last_schedule_hash.txt
+          git add \
+            .github/last_schedule_hash.txt
 
           if git diff --cached --quiet; then
+
             echo "No state change to commit."
+
             exit 0
+
           fi
 
-          git commit -m "Update raid schedule sync state"
+          git commit \
+            -m "Update raid schedule sync state"
+
           git push
