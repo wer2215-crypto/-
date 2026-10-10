@@ -76,7 +76,36 @@ jobs:
               week_data = None
 
           # ==========================================
-          # 3. [10/15-10/21] 형식 만들기
+          # 3. 파티 확정시간 / 특이사항 읽기
+          #
+          # 저장 형태:
+          # raid_party_start:
+          #   dujiParty:
+          #     date: "2026-10-18"
+          #     time: "20:15"
+          #     note: "시요 불참"
+          # ==========================================
+
+          try:
+              with urllib.request.urlopen(
+                  f"{FIREBASE_BASE}/raid_party_start.json",
+                  timeout=20
+              ) as response:
+                  party_start_data = json.loads(
+                      response.read().decode("utf-8")
+                  )
+
+              if not isinstance(party_start_data, dict):
+                  party_start_data = {}
+
+              print("Firebase party start read: OK")
+
+          except Exception as error:
+              print("Firebase party start read failed:", error)
+              party_start_data = {}
+
+          # ==========================================
+          # 4. [10/15-10/21] 형식 만들기
           # ==========================================
 
           week_text = ""
@@ -112,7 +141,8 @@ jobs:
 
           combined_state = {
               "schedule": data,
-              "week": week_data
+              "week": week_data,
+              "party_start": party_start_data
           }
 
           digest = hashlib.sha256(
@@ -197,6 +227,7 @@ jobs:
 
           parties = [
               {
+                  "id": "dujiParty",
                   "name": "두지팟",
                   "members": [
                       "두지",
@@ -209,6 +240,7 @@ jobs:
                   "color": 0x9B59B6
               },
               {
+                  "id": "dozziParty",
                   "name": "도찌팟",
                   "members": [
                       "도찌",
@@ -333,9 +365,66 @@ jobs:
                           "────────────"
                       )
 
+              # 파티 확정시간 / 특이사항
+              saved_start = party_start_data.get(
+                  party["id"],
+                  {}
+              )
+
+              if not isinstance(saved_start, dict):
+                  saved_start = {}
+
+              start_date = saved_start.get("date")
+              start_time = saved_start.get("time")
+              note = saved_start.get("note")
+
+              # 확정시간이 저장되어 있으면:
+              # 두지팟 10/18(일) 20:15
+              # 없으면:
+              # 두지팟 · 선택안됨
+              if start_date and start_time:
+                  try:
+                      confirmed_date = datetime.strptime(
+                          start_date,
+                          "%Y-%m-%d"
+                      )
+
+                      weekday_names = [
+                          "월", "화", "수", "목",
+                          "금", "토", "일"
+                      ]
+
+                      weekday_text = weekday_names[
+                          confirmed_date.weekday()
+                      ]
+
+                      embed_title = (
+                          f'{party["name"]} '
+                          f'{confirmed_date.month}/'
+                          f'{confirmed_date.day}'
+                          f'({weekday_text}) '
+                          f'{start_time}'
+                      )
+
+                  except (ValueError, TypeError):
+                      embed_title = (
+                          f'{party["name"]} · 선택안됨'
+                      )
+              else:
+                  embed_title = (
+                      f'{party["name"]} · 선택안됨'
+                  )
+
+              # 특이사항이 있을 때만 표시
+              if isinstance(note, str) and note.strip():
+                  lines.append("")
+                  lines.append(
+                      f"※ {note.strip()}"
+                  )
+
               # 파티 Embed
               embeds.append({
-                  "title": party["name"],
+                  "title": embed_title,
                   "description": "\n".join(lines),
                   "color": party["color"],
                   "footer": {
