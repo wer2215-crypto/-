@@ -123,6 +123,29 @@
     .week-picker { position: relative; display: inline-flex; align-items: center; }
     .week-picker input[type="date"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
     .week-save-state { width: 100%; text-align: center; color: var(--muted); font-size: 11px; min-height: 16px; }
+    .party-start-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); }
+    .party-start-title { margin: 0 0 8px; font-size: 13px; color: #f8fafc; }
+    .party-start-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+    .party-start-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .party-start-actions button { flex: 1; }
+    .party-start-current { margin-top: 8px; font-size: 12px; color: #fde68a; min-height: 18px; }
+    .party-start-input-wrap { position: relative; }
+    .party-start-input-wrap input { position: relative; z-index: 2; background: transparent; }
+    .party-start-placeholder {
+      position: absolute;
+      z-index: 1;
+      left: 11px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+    .party-start-placeholder.hidden { display: none; }
+    .party-start-input-wrap:has(.party-start-placeholder:not(.hidden)) input {
+      color: transparent;
+    }
+    @media (max-width: 600px) { .party-start-fields { grid-template-columns: 1fr; } }
   </style>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -143,6 +166,7 @@
     const db = getDatabase(app);
     const scheduleRef = ref(db, "raid_schedule");
     const weekRef = ref(db, "raid_schedule_week");
+    const partyStartRef = ref(db, "raid_party_start");
 
     const members = ["뱁새", "담곰", "두지", "깜고", "이리", "시요", "도찌"];
     const days = ["목", "금", "토", "일", "월", "화", "수"];
@@ -173,6 +197,8 @@
     let isSaving = false;
     let dragState = null;
     let lastSelectedCells = [];
+    let currentWeekStart = "2026-10-15";
+    let partyStartData = {};
 
     const $ = id => document.getElementById(id);
     const memberSelect = $("memberSelect");
@@ -288,7 +314,39 @@
           }
           return `<div class="availability-day"><span class="availability-day-name">${day}요일</span><span class="availability-ranges ${ranges.length ? "" : "availability-none"}">${ranges.length ? ranges.join(", ") : "공통 가능 시간 없음"}</span></div>`;
         }).join("");
-        return `<article class="party-summary-card"><h4>${party.name} · ${party.members.length}명</h4><p class="party-members">고정 인원: ${party.members.join(" · ")}</p><div class="availability-days">${dayRows}</div></article>`;
+        const savedStart = partyStartData?.[party.id];
+        const currentText = savedStart?.date && savedStart?.time
+          ? `현재 지정: ${formatPartyStart(savedStart.date, savedStart.time)}`
+          : "현재 지정된 시간이 없습니다.";
+        return `<article class="party-summary-card">
+          <h4>${party.name} · ${party.members.length}명</h4>
+          <p class="party-members">고정 인원: ${party.members.join(" · ")}</p>
+          <div class="availability-days">${dayRows}</div>
+          <div class="party-start-box">
+            <h5 class="party-start-title">▸파티 확정 시간</h5>
+            <div class="party-start-fields">
+              <div class="field">
+                <label for="${party.id}Date">날짜</label>
+                <div class="party-start-input-wrap">
+                  <span class="party-start-placeholder ${savedStart?.date ? "hidden" : ""}">선택안됨</span>
+                  <input type="date" id="${party.id}Date" value="${savedStart?.date || ""}" data-party-input>
+                </div>
+              </div>
+              <div class="field">
+                <label for="${party.id}Time">시간</label>
+                <div class="party-start-input-wrap">
+                  <span class="party-start-placeholder ${savedStart?.time ? "hidden" : ""}">선택안됨</span>
+                  <input type="time" id="${party.id}Time" step="300" value="${savedStart?.time || ""}" data-party-input>
+                </div>
+              </div>
+            </div>
+            <div class="party-start-actions">
+              <button type="button" class="success" data-party-save="${party.id}">시간 저장</button>
+              <button type="button" class="danger" data-party-clear="${party.id}">지정 취소</button>
+            </div>
+            <div class="party-start-current">${currentText}</div>
+          </div>
+        </article>`;
       }).join("");
     }
 
@@ -520,7 +578,74 @@
     window.addEventListener("online", () => setStatus(isDirty ? "온라인 · 저장되지 않은 변경 사항이 있습니다." : "온라인", isDirty ? "pending" : "online"));
     window.addEventListener("offline", () => setStatus("오프라인 · 저장할 수 없습니다.", "pending"));
 
-    // 선택한 날짜가 포함된 목요일~수요일 주간을 계산합니다.
+
+    function formatPartyStart(dateValue, timeValue) {
+      if (!dateValue || !timeValue) return "";
+      const date = parseLocalDate(dateValue);
+      const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+      return `${date.getMonth() + 1}/${date.getDate()}(${weekday}) ${timeValue}`;
+    }
+
+    function isDateInCurrentWeek(dateValue) {
+      if (!dateValue || !currentWeekStart) return false;
+      const date = parseLocalDate(dateValue);
+      const start = parseLocalDate(currentWeekStart);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return date >= start && date <= end;
+    }
+
+    async function savePartyStart(partyId) {
+      const dateValue = $(`${partyId}Date`)?.value;
+      const timeValue = $(`${partyId}Time`)?.value;
+      if (!dateValue || !timeValue) return alert("날짜와 시간을 모두 선택해주세요.");
+      if (!isDateInCurrentWeek(dateValue)) {
+        if (!confirm("현재 일정표 주간 밖의 날짜입니다. 그래도 이 시간으로 저장할까요?")) return;
+      }
+      try {
+        await set(ref(db, `raid_party_start/${partyId}`), { date: dateValue, time: timeValue });
+        setStatus(`${parties.find(p => p.id === partyId)?.name || "파티"} 확정 시간 저장 완료`, "online");
+      } catch (error) {
+        console.error("Party start save failed:", error);
+        alert("파티 확정 시간 저장에 실패했습니다. Firebase 연결을 확인해주세요.");
+      }
+    }
+
+    async function clearPartyStart(partyId) {
+      const partyName = parties.find(p => p.id === partyId)?.name || "파티";
+      if (!confirm(`${partyName}의 지정 시간을 취소할까요?`)) return;
+      try {
+        await set(ref(db, `raid_party_start/${partyId}`), null);
+        setStatus(`${partyName} 확정 시간 지정 취소 완료`, "online");
+      } catch (error) {
+        console.error("Party start clear failed:", error);
+        alert("파티 확정 시간 취소에 실패했습니다. Firebase 연결을 확인해주세요.");
+      }
+    }
+
+    $("partySummaryGrid").addEventListener("click", event => {
+      const saveButton = event.target.closest("[data-party-save]");
+      if (saveButton) return savePartyStart(saveButton.dataset.partySave);
+      const clearButton = event.target.closest("[data-party-clear]");
+      if (clearButton) return clearPartyStart(clearButton.dataset.partyClear);
+    });
+
+    $("partySummaryGrid").addEventListener("change", event => {
+      const input = event.target.closest("[data-party-input]");
+      if (!input) return;
+      const placeholder = input.parentElement?.querySelector(".party-start-placeholder");
+      if (placeholder) placeholder.classList.toggle("hidden", Boolean(input.value));
+    });
+
+    onValue(partyStartRef, snapshot => {
+      const value = snapshot.val();
+      partyStartData = value && typeof value === "object" ? value : {};
+      renderPartyAvailability();
+    }, error => {
+      console.error("Party start read failed:", error);
+    });
+
+        // 선택한 날짜가 포함된 목요일~수요일 주간을 계산합니다.
     function parseLocalDate(value) {
       const [year, month, day] = value.split("-").map(Number);
       return new Date(year, month - 1, day);
@@ -547,6 +672,7 @@
     }
 
     function renderWeek(startValue) {
+      currentWeekStart = startValue;
       const start = parseLocalDate(startValue);
       const end = new Date(start);
       end.setDate(end.getDate() + 6);
