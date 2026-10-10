@@ -41,7 +41,7 @@ jobs:
 
           print("Firebase read: OK")
 
-          # 일정 변경 여부 확인용 해시
+          # 현재 일정의 해시값
           digest = hashlib.sha256(
               json.dumps(
                   data,
@@ -57,7 +57,7 @@ jobs:
               with open(state_file, "r", encoding="utf-8") as f:
                   old_hash = f.read().strip()
 
-          # 일정 변경이 없으면 Discord 메시지 수정 안 함
+          # 일정이 그대로라면 Discord 메시지 수정 안 함
           if old_hash == digest:
               print("Schedule unchanged.")
 
@@ -146,7 +146,7 @@ jobs:
                   for name in party["members"]
               ]
 
-              fields = []
+              lines = []
 
               for day_index, day_name in enumerate(days):
 
@@ -193,30 +193,29 @@ jobs:
 
                           start = None
 
-                  # 가능 시간이 있는 경우
+                  # 요일 + 시간 한 줄 표시
                   if ranges:
-                      value = "🟢 **" + " · ".join(ranges) + "**"
+                      time_text = " · ".join(ranges)
 
-                  # 가능 시간이 없는 경우
+                      lines.append(
+                          f"**{day_name}**　▸ **{time_text}**"
+                      )
+
                   else:
-                      value = "—"
-
-                  fields.append({
-                      "name": f"**{day_name}**",
-                      "value": value,
-                      "inline": False
-                  })
+                      lines.append(
+                          f"**{day_name}**　▸ -"
+                      )
 
               embeds.append({
                   "title": party["name"],
+                  "description": "\n".join(lines),
                   "color": party["color"],
-                  "fields": fields,
                   "footer": {
                       "text": f"🕒 마지막 업데이트 · {updated_at} (KST)"
                   }
               })
 
-          # 기존 Discord 메시지 수정
+          # 기존 Discord 메시지를 수정
           payload = {
               "content": (
                   "📅 **레이드 일정**\n"
