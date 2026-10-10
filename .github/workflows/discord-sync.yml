@@ -408,11 +408,11 @@ jobs:
 
                   except (ValueError, TypeError):
                       embed_title = (
-                          f'{party["name"]} ▸ 선택안됨'
+                          f'{party["name"]}  ▸ 선택안됨'
                       )
               else:
                   embed_title = (
-                      f'{party["name"]} ▸ 선택안됨'
+                      f'{party["name"]}  ▸ 선택안됨'
                   )
 
               # 특이사항이 있을 때만 표시
