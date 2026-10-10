@@ -421,7 +421,7 @@ jobs:
                       "──────────────"
                   )
                   lines.append(
-                      f"✅ {note.strip()}"
+                      f"✔ {note.strip()}"
                   )
 
               # 파티 Embed
