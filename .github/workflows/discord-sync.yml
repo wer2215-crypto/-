@@ -2,7 +2,7 @@ name: Raid Schedule Discord Sync
 
 on:
   schedule:
-    # 매시간 자동 확인
+    # 1시간마다 자동 확인
     - cron: "0 * * * *"
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
 
           print("Firebase read: OK")
 
-          # 현재 일정 상태 확인용 해시
+          # 일정 변경 여부 확인용 해시
           digest = hashlib.sha256(
               json.dumps(
                   data,
@@ -51,14 +51,13 @@ jobs:
           ).hexdigest()
 
           state_file = ".github/last_schedule_hash.txt"
-
           old_hash = ""
 
           if os.path.exists(state_file):
               with open(state_file, "r", encoding="utf-8") as f:
                   old_hash = f.read().strip()
 
-          # 일정이 바뀌지 않았다면 Discord 메시지를 수정하지 않음
+          # 일정 변경이 없으면 Discord 메시지 수정 안 함
           if old_hash == digest:
               print("Schedule unchanged.")
 
@@ -136,7 +135,6 @@ jobs:
           # 한국 시간
           KST = timezone(timedelta(hours=9))
           now = datetime.now(KST)
-
           updated_at = now.strftime("%Y.%m.%d %H:%M")
 
           embeds = []
@@ -161,7 +159,7 @@ jobs:
                       except (IndexError, TypeError):
                           row = []
 
-                      # false = 가능한 시간
+                      # false = 가능
                       available = all(
                           isinstance(row, list)
                           and member_index < len(row)
@@ -195,27 +193,30 @@ jobs:
 
                           start = None
 
+                  # 가능 시간이 있는 경우
+                  if ranges:
+                      value = "🟢 **" + " · ".join(ranges) + "**"
+
+                  # 가능 시간이 없는 경우
+                  else:
+                      value = "—"
+
                   fields.append({
-                      "name": day_name,
-                      "value": (
-                          ", ".join(ranges)
-                          if ranges
-                          else "공통 가능 시간 없음"
-                      ),
+                      "name": f"**{day_name}**",
+                      "value": value,
                       "inline": False
                   })
 
               embeds.append({
-                  "title": f"{party['name']} · 공통 가능 시간",
-                  "description": "고정 파티원 전원이 가능한 시간입니다.",
+                  "title": party["name"],
                   "color": party["color"],
                   "fields": fields,
                   "footer": {
-                      "text": f"마지막 업데이트 · {updated_at} (KST)"
+                      "text": f"🕒 마지막 업데이트 · {updated_at} (KST)"
                   }
               })
 
-          # 기존 Discord 메시지를 수정할 내용
+          # 기존 Discord 메시지 수정
           payload = {
               "content": (
                   "📅 **레이드 일정**\n"
