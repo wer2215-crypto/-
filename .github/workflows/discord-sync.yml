@@ -3,7 +3,7 @@ name: Raid Schedule Discord Sync
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -16,88 +16,73 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sync shared availability to Discord
+      - name: Check Firebase and notify Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           python - <<'PY'
-          import os
-          import json
-          import hashlib
-          import urllib.request
-          import urllib.error
-          import subprocess
+          import os, json, hashlib, urllib.request, urllib.error, subprocess
 
-          firebase_url = (
-              "https://raid-c2ee1-default-rtdb.firebaseio.com/"
-              "raid_schedule.json"
-          )
+          firebase_url = "https://raid-c2ee1-default-rtdb.firebaseio.com/raid_schedule.json"
           webhook = os.environ.get("DISCORD_WEBHOOK", "").strip()
 
           if not webhook:
-              raise SystemExit("DISCORD_WEBHOOK secret is missing.")
+              raise SystemExit("DISCORD_WEBHOOK secret is not configured.")
 
-          # Read Firebase schedule
           req = urllib.request.Request(firebase_url)
-          with urllib.request.urlopen(req, timeout=30) as response:
-              data = json.loads(response.read().decode("utf-8"))
+          with urllib.request.urlopen(req, timeout=20) as response:
+              data = json.loads(response.read().decode())
 
           if not isinstance(data, list):
-              raise SystemExit("Firebase data is not an array.")
+              raise SystemExit("Firebase data format is not an array.")
+
+          digest = hashlib.sha256(
+              json.dumps(data, ensure_ascii=False, sort_keys=True).encode()
+          ).hexdigest()
+
+          state_file = ".github/last_schedule_hash.txt"
+          old_hash = ""
+          if os.path.exists(state_file):
+              with open(state_file, encoding="utf-8") as f:
+                  old_hash = f.read().strip()
+
+          if digest == old_hash:
+              print("No schedule changes. Discord notification skipped.")
+              raise SystemExit(0)
 
           members = ["뱁새", "담곰", "두지", "깜고", "이리", "시요", "도찌"]
-          days = ["목요일", "금요일", "토요일", "일요일",
-                  "월요일", "화요일", "수요일"]
+          days = ["목요일", "금요일", "토요일", "일요일", "월요일", "화요일", "수요일"]
           hours = [
-              "10:00", "11:00", "12:00", "13:00", "14:00",
-              "15:00", "16:00", "17:00", "18:00", "19:00",
-              "20:00", "21:00", "22:00", "23:00", "24:00",
-              "01:00", "02:00"
+              "10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
+              "16:00", "17:00", "18:00", "19:00", "20:00", "21:00",
+              "22:00", "23:00", "24:00", "01:00", "02:00"
           ]
-
           parties = [
               ("두지팟", ["두지", "시요", "뱁새", "담곰", "이리", "깜고"], 0x9B59B6),
               ("도찌팟", ["도찌", "뱁새", "담곰", "이리", "깜고"], 0xE91E63)
           ]
 
           embeds = []
-
           for name, party_members, color in parties:
               fields = []
-
               for d, day in enumerate(days):
                   available = []
-
-                  for h in range(len(hours)):
-                      row = (
-                          data[d][h]
-                          if d < len(data) and isinstance(data[d], list)
-                          and h < len(data[d])
-                          else []
-                      )
-
-                      can_play = isinstance(row, list)
-
+                  for h, _ in enumerate(hours):
+                      row = data[d][h] if d < len(data) and h < len(data[d]) else []
+                      can_play = True
                       for member in party_members:
                           idx = members.index(member)
-                          if (
-                              not isinstance(row, list)
-                              or idx >= len(row)
-                              or row[idx] is not False
-                          ):
+                          if not isinstance(row, list) or idx >= len(row) or row[idx] is not False:
                               can_play = False
                               break
-
                       available.append(can_play)
 
                   ranges = []
                   start = None
-
                   for h in range(len(available) + 1):
                       if h < len(available) and available[h]:
                           if start is None:
@@ -120,102 +105,27 @@ jobs:
                   "fields": fields
               })
 
-          # Hash only the displayed availability, not unrelated Firebase data.
-          rendered = json.dumps(
-              embeds, ensure_ascii=False, sort_keys=True
-          )
-          digest = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+          payload = json.dumps({
+              "content": "📅 레이드 일정이 변경되었습니다.",
+              "embeds": embeds
+          }, ensure_ascii=False).encode()
 
-          state_file = ".github/discord_schedule_state.json"
-          state = {}
-
-          if os.path.exists(state_file):
-              with open(state_file, encoding="utf-8") as f:
-                  state = json.load(f)
-
-          old_hash = state.get("hash", "")
-          message_id = state.get("message_id", "")
-
-          if digest == old_hash and message_id:
-              print("Availability unchanged; no Discord update needed.")
-              raise SystemExit(0)
-
-          # Edit the existing message, or create the first one.
-          if message_id:
-              url = webhook.rstrip("/") + "/messages/" + message_id
-              method = "PATCH"
-              payload = {
-                  "content": "📅 레이드 파티별 공통 가능 시간",
-                  "embeds": embeds
-              }
-          else:
-              separator = "&" if "?" in webhook else "?"
-              url = webhook + separator + "wait=true"
-              method = "POST"
-              payload = {
-                  "content": "📅 레이드 파티별 공통 가능 시간",
-                  "embeds": embeds
-              }
-
-          body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
           req = urllib.request.Request(
-              url,
-              data=body,
+              webhook,
+              data=payload,
               headers={"Content-Type": "application/json"},
-              method=method
+              method="POST"
           )
+          with urllib.request.urlopen(req, timeout=20) as response:
+              print("Discord notification sent:", response.status)
 
-          try:
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  result = response.read().decode("utf-8")
-                  print("Discord API status:", response.status)
-
-              # Initial webhook POST must return the created message.
-              if not message_id:
-                  created = json.loads(result)
-                  message_id = created.get("id", "")
-                  if not message_id:
-                      raise SystemExit(
-                          "Discord did not return a message ID."
-                      )
-
-          except urllib.error.HTTPError as e:
-              details = e.read().decode("utf-8", errors="replace")
-              raise SystemExit(
-                  f"Discord API error {e.code}: {details}"
-              )
-
-          # Save state only after Discord accepts the update.
           os.makedirs(".github", exist_ok=True)
           with open(state_file, "w", encoding="utf-8") as f:
-              json.dump({
-                  "hash": digest,
-                  "message_id": message_id
-              }, f, ensure_ascii=False, indent=2)
-              f.write("\n")
+              f.write(digest + "\n")
 
-          subprocess.run(
-              ["git", "config", "user.name", "github-actions[bot]"],
-              check=True
-          )
-          subprocess.run(
-              ["git", "config", "user.email",
-               "41898282+github-actions[bot]@users.noreply.github.com"],
-              check=True
-          )
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
           subprocess.run(["git", "add", state_file], check=True)
-
-          changed = subprocess.run(
-              ["git", "diff", "--cached", "--quiet"]
-          ).returncode
-
-          if changed != 0:
-              subprocess.run(
-                  ["git", "commit", "-m",
-                   "Update Discord schedule sync state"],
-                  check=True
-              )
-              subprocess.run(["git", "push"], check=True)
-
-          print("Discord schedule message synchronized:", message_id)
+          subprocess.run(["git", "commit", "-m", "Update raid schedule sync state"], check=True)
+          subprocess.run(["git", "push"], check=True)
           PY
