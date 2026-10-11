@@ -1,8 +1,7 @@
 name: Raid Schedule Discord Sync
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
+  # 자동 실행은 cron-job.org에서 1시간마다 workflow_dispatch로 호출
   workflow_dispatch:
 
 permissions:
@@ -267,7 +266,96 @@ jobs:
           )
 
           # ==========================================
-          # 8. 파티별 공통 가능 시간 계산
+          # 8. 파티 확정 일정 변경 알림 준비
+          # ==========================================
+          # 파티별 date/time/note를 따로 비교합니다.
+          # 선택안됨(날짜/시간 없음)은 새 알림을 보내지 않습니다.
+          # 최초 적용 시 현재 값은 기준값으로만 저장합니다.
+
+          alert_state_file = ".github/last_party_alert_state.json"
+          old_party_alert_state = {}
+          alert_state_initialized = os.path.exists(alert_state_file)
+
+          if alert_state_initialized:
+              try:
+                  with open(alert_state_file, "r", encoding="utf-8") as f:
+                      old_party_alert_state = json.load(f)
+                  if not isinstance(old_party_alert_state, dict):
+                      old_party_alert_state = {}
+              except Exception as error:
+                  print("Party alert state read failed:", error)
+                  old_party_alert_state = {}
+
+          current_party_alert_state = {}
+          party_alerts = []
+          alert_weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+
+          for party in parties:
+              saved = party_start_data.get(party["id"], {})
+              if not isinstance(saved, dict):
+                  saved = {}
+
+              current_state = {
+                  "date": saved.get("date") or "",
+                  "time": saved.get("time") or "",
+                  "note": saved.get("note").strip()
+                          if isinstance(saved.get("note"), str) else ""
+              }
+              current_party_alert_state[party["id"]] = current_state
+
+              old_state = old_party_alert_state.get(party["id"], {})
+              if not isinstance(old_state, dict):
+                  old_state = {}
+
+              changed = (
+                  old_state.get("date", "") != current_state["date"]
+                  or old_state.get("time", "") != current_state["time"]
+                  or old_state.get("note", "") != current_state["note"]
+              )
+
+              if (
+                  alert_state_initialized
+                  and changed
+                  and current_state["date"]
+                  and current_state["time"]
+              ):
+                  try:
+                      d = datetime.strptime(current_state["date"], "%Y-%m-%d")
+                      weekday = alert_weekdays[d.weekday()]
+                      alert_lines = [
+                          f'📢 **{party["name"]} 일정이 변경되었습니다!**',
+                          f'📅 {d.month}/{d.day}({weekday}) {current_state["time"]}'
+                      ]
+                      if current_state["note"]:
+                          alert_lines.append(
+                              f'📝 특이사항 : {current_state["note"]}'
+                          )
+                      party_alerts.append({
+                          "party_id": party["id"],
+                          "content": "\n".join(alert_lines)
+                      })
+                      print(f'Party alert queued: {party["name"]}')
+                  except (ValueError, TypeError):
+                      print(f'Invalid party alert date: {party["name"]}')
+
+          with open("/tmp/party_alerts.json", "w", encoding="utf-8") as f:
+              json.dump(party_alerts, f, ensure_ascii=False)
+
+          with open(
+              "/tmp/new_party_alert_state.json", "w", encoding="utf-8"
+          ) as f:
+              json.dump(
+                  current_party_alert_state, f,
+                  ensure_ascii=False, indent=2
+              )
+
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(
+                  f"SEND_PARTY_ALERT={'true' if party_alerts else 'false'}\n"
+              )
+
+          # ==========================================
+          # 9. 파티별 공통 가능 시간 계산
           # ==========================================
 
           embeds = []
@@ -557,7 +645,62 @@ jobs:
           echo "Existing Discord message updated successfully."
 
       # ==========================================
-      # 12. 현재 상태 저장
+      # 12. 변경된 파티만 새 Discord 알림 전송
+      # ==========================================
+
+      - name: Send changed party alert
+        if: env.SEND_PARTY_ALERT == 'true'
+        env:
+          DISCORD_ALERT_WEBHOOK: ${{ secrets.DISCORD_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$DISCORD_ALERT_WEBHOOK" ]; then
+            echo "DISCORD_ALERT_WEBHOOK secret is missing."
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          import urllib.error
+
+          webhook = os.environ["DISCORD_ALERT_WEBHOOK"]
+
+          with open("/tmp/party_alerts.json", "r", encoding="utf-8") as f:
+              alerts = json.load(f)
+
+          for alert in alerts:
+              body = json.dumps(
+                  {"content": alert["content"]},
+                  ensure_ascii=False
+              ).encode("utf-8")
+
+              request = urllib.request.Request(
+                  webhook,
+                  data=body,
+                  headers={
+                      "Content-Type": "application/json",
+                      "User-Agent": "Mozilla/5.0"
+                  },
+                  method="POST"
+              )
+
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      status = response.status
+                  if status not in (200, 204):
+                      raise SystemExit(
+                          f"Discord alert failed: HTTP {status}"
+                      )
+                  print("Party alert sent:", alert["party_id"])
+              except urllib.error.HTTPError as error:
+                  print("Discord alert failed:", error.code)
+                  print(error.read().decode("utf-8", errors="replace"))
+                  raise
+          PY
+
+      # ==========================================
+      # 13. 현재 상태 저장
       # ==========================================
 
       - name: Save schedule state
@@ -571,6 +714,10 @@ jobs:
             /tmp/new_schedule_hash.txt \
             .github/last_schedule_hash.txt
 
+          cp \
+            /tmp/new_party_alert_state.json \
+            .github/last_party_alert_state.json
+
           git config \
             user.name \
             "github-actions[bot]"
@@ -580,7 +727,8 @@ jobs:
             "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add \
-            .github/last_schedule_hash.txt
+            .github/last_schedule_hash.txt \
+            .github/last_party_alert_state.json
 
           if git diff --cached --quiet; then
 
